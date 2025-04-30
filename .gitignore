@@ -1,0 +1,39 @@
+# Игнорирование тестовых файлов
+/tests/photos/
+/tests/reports/
+/local_storage/
+
+# Игнорирование временных файлов Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Игнорирование файлов виртуального окружения
+venv/
+ENV/
+
+# Игнорирование файлов IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Игнорирование логов
+*.log

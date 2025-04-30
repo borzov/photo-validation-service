@@ -1,0 +1,38 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/photo_validation
+    volumes:
+      - ./local_storage:/app/local_storage
+    command: >
+      bash -c "
+        # Ждем, пока PostgreSQL запустится
+        echo 'Waiting for PostgreSQL...'
+        while ! pg_isready -h postgres -p 5432 -q; do
+          sleep 1
+        done
+        echo 'PostgreSQL is up - executing migrations'
+        # Применяем миграции
+        alembic upgrade head
+        # Запускаем приложение
+        uvicorn app.api.main:app --host 0.0.0.0 --port 8000
+      "
+
+  postgres:
+    image: postgres:14
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=photo_validation
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
