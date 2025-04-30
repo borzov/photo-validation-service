@@ -3,6 +3,9 @@
 /tests/reports/
 /local_storage/
 
+# Игнорирование системных файлов
+.DS_Store
+
 # Игнорирование временных файлов Python
 __pycache__/
 *.py[cod]
