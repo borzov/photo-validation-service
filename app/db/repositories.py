@@ -164,6 +164,9 @@ class ValidationRequestRepository:
         request_id: str,
         status: str = "FAILED",
         error_message: str = "Unknown error",
+        checks: List[Dict[str, Any]] = None,
+        issues: List[str] = None,
+        overall_status: str = None,
         processing_time: float = None
     ) -> Optional[ValidationRequest]:
         """
@@ -181,4 +184,21 @@ class ValidationRequestRepository:
             db_request.status = status
             db_request.error_message = error_message
             db_request.processed_at = datetime.utcnow()
-            db_request.processing_time = processing_
+            db_request.checks = checks
+            db_request.issues = issues
+            db_request.overall_status = overall_status
+            db_request.processing_time = processing_time
+            
+            db.flush()
+            
+            # Создаем копию данных
+            result_dict = db_request.to_dict()
+            
+            logger.error(f"Updated error for request {request_id}: {error_message}, processing time: {processing_time:.2f}s" if processing_time else f"Updated error for request {request_id}: {error_message}")
+            
+            # Создаем новый объект ValidationRequest с теми же данными
+            result = ValidationRequest()
+            for key, value in result_dict.items():
+                setattr(result, key, value)
+                
+            return result

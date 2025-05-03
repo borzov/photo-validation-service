@@ -9,8 +9,14 @@ RUN apt-get update && apt-get install -y \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Копирование зависимостей и установка
-COPY requirements.txt .
+# Копируем файлы проекта
+COPY app /app/app
+COPY alembic /app/alembic
+COPY alembic.ini /app/
+COPY requirements.txt /app/
+COPY models /app/models
+
+# Устанавливаем зависимости
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Копирование кода приложения

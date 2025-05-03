@@ -3,17 +3,19 @@ services:
     build: .
     ports:
       - "8000:8000"
-    depends_on:
-      - postgres
-    environment:
-      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/photo_validation
     volumes:
+      - ./models:/app/models
       - ./local_storage:/app/local_storage
+    environment:
+      - MODELS_DIR=/app/models
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/photo_validation
+    depends_on:
+      - db
     command: >
       bash -c "
         # Ждем, пока PostgreSQL запустится
         echo 'Waiting for PostgreSQL...'
-        while ! pg_isready -h postgres -p 5432 -q; do
+        while ! pg_isready -h db -p 5432 -q; do
           sleep 1
         done
         echo 'PostgreSQL is up - executing migrations'
@@ -23,8 +25,8 @@ services:
         uvicorn app.api.main:app --host 0.0.0.0 --port 8000
       "
 
-  postgres:
-    image: postgres:14
+  db:
+    image: postgres:15
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres

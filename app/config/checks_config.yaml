@@ -1,0 +1,120 @@
+# Конфигурация проверок фотографий
+# Каждая проверка может быть включена/выключена и может иметь свои параметры
+
+# Общие настройки системы проверок
+system:
+  # Определяет, пропускать ли все последующие проверки, если какая-то проверка не пройдена
+  stop_on_failure: false
+  # Максимальное время выполнения одной проверки (в секундах)
+  max_check_time: 5.0
+
+# Порядок выполнения проверок
+check_order:
+  - fileFormat     # Проверка формата файла
+  - fileSize       # Проверка размера файла
+  - dimensions     # Проверка размеров изображения
+  - colorMode      # Проверка цветового режима
+  - realPhoto      # Проверка на реальную фотографию
+  - faceCount      # Проверка числа лиц
+  - facePosition   # Проверка положения лица
+  - facePose       # Проверка позы лица
+  - blurriness     # Проверка размытости
+  - redEye         # Проверка на эффект красных глаз
+  - background     # Проверка фона
+  - extraneousObjects  # Проверка посторонних объектов
+  - accessories    # Проверка аксессуаров
+  - lighting       # Проверка освещения
+
+# Параметры отдельных проверок
+checks:
+  fileFormat:
+    enabled: true
+    params:
+      allowed_formats: [jpg, jpeg]
+  
+  fileSize:
+    enabled: true
+    params:
+      max_size_bytes: 1048576  # 1MB
+  
+  dimensions:
+    enabled: true
+    params:
+      min_width: 400
+      min_height: 500
+  
+  colorMode:
+    enabled: true
+    params:
+      grayscale_saturation_threshold: 15
+  
+  realPhoto:
+    enabled: true
+    params:
+      gradient_mean_threshold: 35
+      gradient_std_threshold: 30
+      texture_ratio_threshold: 0.6
+      histogram_peaks_threshold: 35
+      mid_freq_energy_threshold: 80
+      min_evidence_count: 2
+  
+  faceCount:
+    enabled: true
+    params:
+      min_count: 1
+      max_count: 1
+      face_confidence_threshold: 0.4
+  
+  facePosition:
+    enabled: true
+    params:
+      face_min_area_ratio: 0.05
+      face_max_area_ratio: 0.8
+      face_center_tolerance: 0.4
+      min_width_ratio: 0.15
+      min_height_ratio: 0.2
+  
+  facePose:
+    enabled: true
+    params:
+      max_yaw: 25.0
+      max_pitch: 25.0
+      max_roll: 25.0
+  
+  blurriness:
+    enabled: true
+    params:
+      laplacian_threshold: 40
+  
+  redEye:
+    enabled: true
+    params:
+      red_threshold: 180
+      red_ratio_threshold: 1.8
+      min_red_pixel_ratio: 0.15
+  
+  background:
+    enabled: true
+    params:
+      background_std_dev_threshold: 100.0
+      is_dark_threshold: 100
+  
+  extraneousObjects:
+    enabled: true
+    params:
+      min_object_contour_area_ratio: 0.03
+      person_scale_factor: 1.1
+  
+  accessories:
+    enabled: true
+    params:
+      glasses_detection_enabled: true
+      headwear_detection_enabled: true
+      hand_detection_enabled: true
+  
+  lighting:
+    enabled: true
+    params:
+      underexposure_threshold: 25
+      overexposure_threshold: 240
+      low_contrast_threshold: 20

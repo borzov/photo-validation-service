@@ -7,6 +7,8 @@ from app.db.models import init_db
 from app.core.config import settings
 from app.core.exceptions import PhotoValidationError
 from app.core.logging import get_logger
+import asyncio
+from app.worker.tasks import start_worker
 
 logger = get_logger(__name__)
 
@@ -15,13 +17,13 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
-# Настройка CORS
+# Настройка CORS с улучшенной безопасностью
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # В продакшене заменить на список разрешенных доменов
+    allow_origins=settings.ALLOWED_ORIGINS,  # Использование списка разрешенных доменов
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["POST", "GET", "OPTIONS"],  # Ограничение методов
+    allow_headers=["Content-Type", "X-Request-ID"],  # Ограничение заголовков
 )
 
 engine = init_db()
@@ -70,6 +72,12 @@ async def health_check():
     """
     return {"status": "ok"}
 
+# Запуск обработчика задач при старте приложения
+@app.on_event("startup")
+async def startup_event():
+    # Запуск обработчика задач в фоновом режиме
+    asyncio.create_task(start_worker())
+    logger.info("Started image processing worker")
 
 if __name__ == "__main__":
     import uvicorn
