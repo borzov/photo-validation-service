@@ -15,6 +15,7 @@ from io import BytesIO
 from pathlib import Path
 import shutil # Не используется, но был импортирован ранее
 import html
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Настройки
 DEFAULT_API_URL = "http://localhost:8000"
@@ -252,8 +253,13 @@ def check_service_availability(api_url: str) -> bool:
         if response.status_code == 200:
             try:
                 data = response.json()
-                if data.get("status") == "ok":
-                    print("Service is available.")
+                # Принимаем как старый формат "ok", так и новый "healthy", и "warning"
+                status = data.get("status")
+                if status in ["ok", "healthy", "warning"]:
+                    if status == "warning":
+                        print(f"Service is available with warnings: {data.get('issues', [])}")
+                    else:
+                        print("Service is available.")
                     return True
                 else:
                     print(f"Service health check returned unexpected status: {data}")
@@ -299,6 +305,15 @@ def submit_photo(api_url: str, photo_path: str) -> Optional[str]:
             except json.JSONDecodeError:
                  print(f"Error submitting photo {photo_name}: Could not decode JSON response. Status: {response.status_code}, Response: {response.text}")
                  return None
+        elif response.status_code == 400:
+            # Return error details for 400 responses for better error handling
+            try:
+                error_detail = response.json().get("detail", "Unknown validation error")
+                print(f"Photo {photo_name} rejected during validation: {error_detail}")
+                return f"VALIDATION_ERROR:{error_detail}"
+            except json.JSONDecodeError:
+                print(f"Error submitting photo {photo_name}: Validation failed but could not parse error. Response: {response.text}")
+                return "VALIDATION_ERROR:Unknown validation error"
         else:
             print(f"Error submitting photo {photo_name}: Received status code {response.status_code}. Response: {response.text}")
             return None
@@ -313,56 +328,33 @@ def submit_photo(api_url: str, photo_path: str) -> Optional[str]:
         print(f"Unexpected error submitting photo {photo_name}: {str(e)}")
         return None
 
-def get_validation_result(api_url: str, request_id: str, max_attempts: int = DEFAULT_MAX_ATTEMPTS, delay: int = DEFAULT_DELAY_SECONDS) -> Optional[Dict[str, Any]]:
-    """
-    Получает результат валидации по ID запроса с повторными попытками
-    """
+def get_validation_result(api_url: str, request_id: str, max_attempts: int = 30, delay: float = 0.2) -> Optional[Dict[str, Any]]:
     result_url = f"{api_url}/api/v1/results/{request_id}"
-    print(f"Polling for results for request ID {request_id} at {result_url}...")
-
+    import time
+    start_time = time.time()
+    last_result = None
     for attempt in range(max_attempts):
         try:
-            response = requests.get(result_url, timeout=30) # Увеличен таймаут для получения
-
+            response = requests.get(result_url, timeout=10)  # Increased timeout
             if response.status_code == 200:
                 try:
                     result = response.json()
                     status = result.get("status")
-
-                    # Если обработка завершена или произошла ошибка на сервере, возвращаем результат
+                    last_result = result
                     if status in ["COMPLETED", "FAILED"]:
-                        print(f"Received final result for ID {request_id}. Status: {status}")
                         return result
-                    elif status in ["PENDING", "PROCESSING"]:
-                         print(f"Waiting for results for ID {request_id}... (Attempt {attempt+1}/{max_attempts}, Status: {status})")
-                    else:
-                         print(f"Warning: Received unknown status '{status}' for ID {request_id}. Continuing polling.")
-
                 except json.JSONDecodeError:
-                    print(f"Error decoding JSON response for ID {request_id}. Status: {response.status_code}, Response: {response.text}")
-                    # Продолжаем попытки, возможно временная проблема сервера
-
+                    pass
             elif response.status_code == 404:
-                print(f"Error getting results: Request ID {request_id} not found (404). Stopping polling for this ID.")
-                return None # Нет смысла продолжать, если ID не найден
-            else:
-                print(f"Error getting results for ID {request_id}: Received status code {response.status_code}. Response: {response.text}")
-                # Продолжаем попытки при других ошибках сервера
-
-        except requests.exceptions.Timeout:
-             print(f"Timeout getting results for ID {request_id} (Attempt {attempt+1}/{max_attempts}). Retrying...")
-        except requests.exceptions.RequestException as e:
-            print(f"Network error getting results for ID {request_id}: {str(e)} (Attempt {attempt+1}/{max_attempts}). Retrying...")
-        except Exception as e:
-             print(f"Unexpected error getting results for ID {request_id}: {str(e)} (Attempt {attempt+1}/{max_attempts}). Retrying...")
-
-        # Ждем перед следующей попыткой
+                return None
+        except Exception:
+            pass
+        # Increased overall timeout from 6 to 30 seconds
+        if time.time() - start_time > 30:
+            break
         if attempt < max_attempts - 1:
-             time.sleep(delay)
-
-    print(f"Exceeded maximum polling attempts ({max_attempts}) for request ID {request_id}. Returning last known state or None.")
-    # Возвращаем None, если так и не получили финальный статус
-    return None
+            time.sleep(delay)
+    return last_result
 
 def get_image_info(image_path: str) -> Dict[str, Any]:
     """
@@ -483,11 +475,27 @@ def generate_html_report(results: List[Dict[str, Any]], report_dir: str, timesta
                     if not validation_result:
                         validation_html = "<p class='status-FAILED'>Ошибка: Не удалось получить результат валидации</p>"
                     else:
-                        status_class = f"status-{validation_result['status']}"
-                        validation_html = f"<p class='{status_class}'><strong>Статус:</strong> {validation_result['status']}</p>"
+                        # Use overallStatus for display if available, otherwise fall back to status
+                        display_status = validation_result.get('overallStatus', validation_result.get('status', 'UNKNOWN'))
+                        status_class = f"status-{display_status}"
+                        validation_html = f"<p class='{status_class}'><strong>Статус:</strong> {display_status}</p>"
                         
                         if validation_result.get("processingTime") is not None:
                             validation_html += f"<p><strong>Время обработки:</strong> {validation_result['processingTime']:.2f} сек</p>"
+
+                        # Показываем основные проблемы, если они есть
+                        if validation_result.get("issues"):
+                            validation_html += f"""
+                                <div class="check-details">
+                                    <p><strong>Основные проблемы:</strong></p>
+                                    <ul>
+                            """
+                            for issue in validation_result["issues"]:
+                                validation_html += f"<li>{html.escape(str(issue))}</li>"
+                            validation_html += """
+                                    </ul>
+                                </div>
+                            """
 
                         # Добавляем детали проверок
                         if validation_result.get("checks", []):
@@ -503,6 +511,7 @@ def generate_html_report(results: List[Dict[str, Any]], report_dir: str, timesta
                                     
                                 check_name = check.get("check", "unknown")
                                 check_status = check.get("status", "UNKNOWN")
+                                check_reason = check.get("reason", "")
                                 check_details = check.get("details", "")
                                 check_params = check.get("parameters", {})
                                 check_results = check.get("results", {})
@@ -514,6 +523,14 @@ def generate_html_report(results: List[Dict[str, Any]], report_dir: str, timesta
                                         <strong>{html.escape(str(check_name))}</strong>: 
                                         <span class="{status_class}">{check_status}</span>
                                 """
+                                
+                                # Показываем причину для всех проверок, если она есть
+                                if check_reason:
+                                    validation_html += f"""
+                                        <div class="check-details">
+                                            <p><strong>Причина:</strong> {html.escape(str(check_reason))}</p>
+                                        </div>
+                                    """
                                 
                                 # Для FAILED проверок всегда показываем расширенную информацию
                                 if check_status == "FAILED":
@@ -619,119 +636,78 @@ def generate_html_report(results: List[Dict[str, Any]], report_dir: str, timesta
         print(f"Ошибка при генерации отчета: {e}")
         raise
 
-def process_photos(api_url: str, photo_dir: str, report_dir: str, max_attempts: int, delay: int) -> None:
-    """
-    Обрабатывает все фотографии в указанной директории и генерирует отчет
-    """
-    # Проверяем доступность сервиса
+def process_single_photo(photo_path, api_url, max_attempts, delay):
+    image_info = get_image_info(photo_path)
+    result = {"image_info": image_info, "validation_result": None, "error": image_info.get("error")}
+    
+    # If there's an error getting image info, return early
+    if result["error"]:
+        return result
+    
+    # Try to submit photo
+    request_id = submit_photo(api_url, photo_path)
+    if not request_id:
+        result["error"] = "Failed to submit photo to API"
+        return result
+    
+    # Check if submission returned a validation error
+    if isinstance(request_id, str) and request_id.startswith("VALIDATION_ERROR:"):
+        error_detail = request_id[len("VALIDATION_ERROR:"):]
+        # Create a fake validation result for display purposes
+        result["validation_result"] = {
+            "status": "FAILED", 
+            "overallStatus": "REJECTED",
+            "processingTime": 0.0,
+            "checks": [],
+            "issues": [error_detail]  # Clean text instead of JSON object
+        }
+        return result
+    
+    # If submission succeeded, try to get validation result
+    validation_result = get_validation_result(api_url, request_id, max_attempts, delay)
+    if not validation_result:
+        result["error"] = f"Failed to retrieve validation result (Request ID: {request_id})"
+    else:
+        result["validation_result"] = validation_result
+    
+    return result
+
+def process_photos_parallel(api_url: str, photo_dir: str, report_dir: str, max_attempts: int, delay: float, max_workers: int = 8) -> None:
     if not check_service_availability(api_url):
         print(f"Service at {api_url} is not available. Exiting.")
         sys.exit(1)
-
-    # Создаем директорию для отчетов, если она не существует
     try:
         os.makedirs(report_dir, exist_ok=True)
     except OSError as e:
         print(f"Error creating report directory '{report_dir}': {e}")
         sys.exit(1)
-
-    # Проверяем наличие директории с фотографиями
     photo_path_obj = Path(photo_dir)
     if not photo_path_obj.is_dir():
         print(f"Photo directory '{photo_dir}' not found or is not a directory.")
         sys.exit(1)
-
-    # Получаем список файлов JPEG/JPG в директории
     photos = sorted([
         str(p) for p in photo_path_obj.iterdir()
         if p.is_file() and p.suffix.lower() in ['.jpg', '.jpeg']
     ])
-
     if not photos:
         print(f"No JPEG files found in directory '{photo_dir}'.")
         sys.exit(0)
-
     print(f"Found {len(photos)} photos to process in '{photo_dir}'.")
-
-    # Создаем временную метку для отчета
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    # Статистика
     start_run_time = time.time()
-    successful_submissions = 0
-    failed_submissions = 0
-    results_retrieved = 0
-    results_failed = 0
-
-    # Список результатов для отчета
     report_data = []
-
-    # Обрабатываем каждую фотографию
-    for i, photo_path in enumerate(photos, 1):
-        photo_name = os.path.basename(photo_path)
-        print(f"\n--- Processing photo {i}/{len(photos)}: {photo_name} ---")
-
-        if i > 1:
-            random_delay = random.uniform(MIN_REQUEST_DELAY, MAX_REQUEST_DELAY)
-            print(f"Waiting {random_delay:.2f} seconds before next submission...")
-            time.sleep(random_delay)
-
-        # Получаем информацию о фотографии
-        image_info = get_image_info(photo_path)
-        current_result = {"image_info": image_info, "validation_result": None, "error": image_info.get("error")}
-
-        if current_result["error"]:
-            print(f"Skipping submission for {photo_name} due to file read error.")
-            failed_submissions += 1
-            report_data.append(current_result)
-            continue
-
-        # Отправляем фото на валидацию
-        request_id = submit_photo(api_url, photo_path)
-        if not request_id:
-            failed_submissions += 1
-            current_result["error"] = "Failed to submit photo to API"
-            report_data.append(current_result)
-            continue
-        else:
-            successful_submissions += 1
-
-        # Получаем результат валидации
-        validation_result = get_validation_result(api_url, request_id, max_attempts, delay)
-
-        if not validation_result:
-            results_failed += 1
-            current_result["error"] = f"Failed to retrieve validation result (Request ID: {request_id})"
-        else:
-            results_retrieved += 1
-            current_result["validation_result"] = validation_result
-
-        # Добавляем результат в общий список
-        report_data.append(current_result)
-
-        # Выводим краткую информацию о результате
-        if validation_result:
-            status = validation_result.get('status', 'N/A')
-            overall_status = validation_result.get('overallStatus', 'N/A')
-            server_time = validation_result.get('processingTime', None)
-            error_msg = validation_result.get('errorMessage', None)
-
-            print(f"Result for {photo_name} (ID: {request_id}):")
-            print(f"  Processing Status: {status}")
-            if status == 'COMPLETED':
-                print(f"  Overall Status: {overall_status}")
-            if server_time is not None:
-                print(f"  Server Processing Time: {server_time:.3f} sec")
-            if error_msg:
-                print(f"  Error Message: {error_msg}")
-        else:
-            print(f"Failed to get result for {photo_name} (ID: {request_id})")
-
-    # Завершение обработки
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(process_single_photo, photo_path, api_url, max_attempts, delay)
+            for photo_path in photos
+        ]
+        for future in as_completed(futures, timeout=max(2, len(photos))):
+            try:
+                report_data.append(future.result(timeout=1))
+            except Exception as e:
+                report_data.append({"error": str(e)})
     end_run_time = time.time()
     total_run_time = end_run_time - start_run_time
-
-    # Генерируем HTML-отчет
     try:
         report_path = generate_html_report(report_data, report_dir, timestamp)
     except Exception as report_e:
@@ -739,29 +715,10 @@ def process_photos(api_url: str, photo_dir: str, report_dir: str, max_attempts: 
         print("Raw results data:")
         print(json.dumps(report_data, indent=2, ensure_ascii=False))
         sys.exit(1)
-
-    # Выводим итоговую статистику
-    summary = f"\n--- Run Summary ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) ---\n"
-    summary += f"Total photos found: {len(photos)}\n"
-    summary += f"Successful submissions: {successful_submissions}\n"
-    summary += f"Failed submissions (incl. file errors): {failed_submissions}\n"
-    summary += f"Results retrieved: {results_retrieved}\n"
-    summary += f"Results retrieval failed/timeout: {results_failed}\n"
-    summary += f"Total script execution time: {total_run_time:.2f} sec.\n"
-
-    # Вычисляем среднее время обработки на сервере
-    server_times = [
-        r.get("validation_result", {}).get("processingTime", 0)
-        for r in report_data if r.get("validation_result") and r["validation_result"].get("processingTime") is not None
-    ]
-    if server_times:
-        avg_server_time = sum(server_times) / len(server_times)
-        summary += f"Average server processing time (for {len(server_times)} results): {avg_server_time:.3f} sec.\n"
-
-    print(summary)
+    print(f"\n--- Run Summary ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) ---")
+    print(f"Total photos found: {len(photos)}")
+    print(f"Total script execution time: {total_run_time:.2f} sec.")
     print(f"Check completed. Report saved to: {report_path}")
-
-    # Открываем отчет в браузере
     try:
         import webbrowser
         report_abs_path = os.path.abspath(report_path)
@@ -772,25 +729,20 @@ def process_photos(api_url: str, photo_dir: str, report_dir: str, max_attempts: 
         print(f"Please open the file manually: {os.path.abspath(report_path)}")
 
 def main():
-    """
-    Основная функция скрипта
-    """
     parser = argparse.ArgumentParser(description="Script for automatic photo validation via API")
     parser.add_argument("--api-url", default=DEFAULT_API_URL, help=f"Validation service API URL (default: {DEFAULT_API_URL})")
     parser.add_argument("--photo-dir", default=DEFAULT_PHOTO_DIR, help=f"Directory with photos (default: {DEFAULT_PHOTO_DIR})")
     parser.add_argument("--report-dir", default=DEFAULT_REPORT_DIR, help=f"Directory for reports (default: {DEFAULT_REPORT_DIR})")
-    parser.add_argument("--max-attempts", type=int, default=DEFAULT_MAX_ATTEMPTS, help=f"Max attempts to get result (default: {DEFAULT_MAX_ATTEMPTS})")
-    parser.add_argument("--delay", type=int, default=DEFAULT_DELAY_SECONDS, help=f"Delay between attempts in seconds (default: {DEFAULT_DELAY_SECONDS})")
-
+    parser.add_argument("--max-attempts", type=int, default=30, help=f"Max attempts to get result (default: 30)")
+    parser.add_argument("--delay", type=float, default=1, help=f"Delay between attempts in seconds (default: 1)")
+    parser.add_argument("--threads", type=int, default=8, help=f"Number of parallel threads (default: 8)")
     args = parser.parse_args()
-
     print("Starting photo validation process...")
     print(f"API URL: {args.api_url}")
     print(f"Photo Directory: {args.photo_dir}")
     print(f"Report Directory: {args.report_dir}")
-    print(f"Max Attempts: {args.max_attempts}, Delay: {args.delay}s")
-
-    process_photos(args.api_url, args.photo_dir, args.report_dir, args.max_attempts, args.delay)
+    print(f"Max Attempts: {args.max_attempts}, Delay: {args.delay}s, Threads: {args.threads}")
+    process_photos_parallel(args.api_url, args.photo_dir, args.report_dir, args.max_attempts, args.delay, args.threads)
 
 if __name__ == "__main__":
     main()

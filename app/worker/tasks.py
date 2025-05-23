@@ -6,10 +6,11 @@ from datetime import datetime
 import cv2
 import numpy as np
 import os
-from typing import Dict, Any, List, Tuple, Union, Optional
+from typing import Dict, Any, List, Tuple, Union, Optional, Set
 import traceback
 import json
 import math
+import weakref
 
 from app.core.logging import get_logger
 from app.core.concurrency import acquire_processing_slot, release_processing_slot
@@ -19,11 +20,24 @@ from app.core.config import settings
 # Импортируем новую систему проверок
 from app.cv.checks.runner import CheckRunner
 from app.cv.checks.registry import check_registry
+from app.core.check_config import check_config
 
 logger = get_logger(__name__)
 
 # Очередь задач для обработки изображений
 processing_queue = asyncio.Queue()
+
+# Множество для отслеживания активных задач
+active_tasks: Set[asyncio.Task] = set()
+
+def cleanup_completed_tasks():
+    """Очищает завершенные задачи из множества активных задач"""
+    completed_tasks = {task for task in active_tasks if task.done()}
+    for task in completed_tasks:
+        active_tasks.discard(task)
+        # Логируем исключения из завершенных задач
+        if task.exception():
+            logger.error(f"Task completed with exception: {task.exception()}")
 
 # --- Вспомогательная функция для конвертации типов NumPy ---
 def convert_numpy_types(data: Union[Dict, List, Any]) -> Union[Dict, List, Any]:
@@ -136,10 +150,8 @@ async def process_image_task(request_id: str, file_path: str) -> None:
         image_bytes = storage_client.get_file(file_path)
         logger.debug(f"[{request_id}] Decoding image...")
         nparr = np.frombuffer(image_bytes, np.uint8)
-        # Используем флаг IMREAD_IGNORE_ORIENTATION для возможной коррекции поворота из EXIF
         image = cv2.imdecode(nparr, cv2.IMREAD_COLOR | cv2.IMREAD_IGNORE_ORIENTATION)
         if image is None:
-            # Если декодирование не удалось, это критическая ошибка для обработки
             raise ValueError("Failed to decode image (cv2.imdecode returned None)")
         logger.debug(f"[{request_id}] Image decoded successfully, shape: {image.shape}")
         
@@ -159,7 +171,19 @@ async def process_image_task(request_id: str, file_path: str) -> None:
         overall_status = validation_result["overall_status"]
         checks = validation_result["checks"]
         issues = validation_result["issues"]
-        
+
+        required_checks = set(check_config.get_enabled_checks())
+        found_checks = {c.get("check"): c for c in checks}
+        logger.warning(f"[{request_id}] check_order: {list(required_checks)}")
+        logger.warning(f"[{request_id}] checks: {[ (c.get('check'), c.get('status')) for c in checks ]}")
+        all_checks_completed = True
+        for check_id in required_checks:
+            c = found_checks.get(check_id)
+            if not c or c.get("status") is None:
+                all_checks_completed = False
+                logger.warning(f"[{request_id}] Check '{check_id}' not completed (status: {c.get('status') if c else 'MISSING'}), not marking as COMPLETED.")
+                break
+
         # Шаг 6: Конвертируем типы NumPy для сохранения в БД
         logger.debug(f"[{request_id}] Converting check results...")
         checks_final = convert_numpy_types(checks)
@@ -168,96 +192,61 @@ async def process_image_task(request_id: str, file_path: str) -> None:
         # Шаг 7: Сохранение успешного результата в БД
         final_processing_time = time.time() - start_time
         logger.debug(f"[{request_id}] Updating result in database...")
-        ValidationRequestRepository.update_result(
-            request_id=request_id,
-            status="COMPLETED",
-            overall_status=overall_status,
-            checks=checks_final,
-            issues=issues_final,
-            processed_at=datetime.utcnow(),
-            processing_time=final_processing_time
-        )
-        logger.info(f"Completed processing for request: {request_id}, overall status: {overall_status}, time: {final_processing_time:.3f}s")
+        if all_checks_completed:
+            ValidationRequestRepository.update_result(
+                request_id=request_id,
+                status="COMPLETED",
+                overall_status=overall_status,
+                checks=checks_final,
+                issues=issues_final,
+                processed_at=datetime.utcnow(),
+                processing_time=final_processing_time
+            )
+            logger.info(f"Completed processing for request: {request_id}, overall status: {overall_status}, time: {final_processing_time:.3f}s")
+        else:
+            ValidationRequestRepository.update_status(request_id, "PROCESSING")
+            logger.info(f"[{request_id}] Not all checks completed, status left as PROCESSING.")
 
-    # --- Блок обработки ЛЮБЫХ исключений ---
     except Exception as e:
-        final_processing_time = time.time() - start_time # Фиксируем время до ошибки
-        # Формируем детальное сообщение об ошибке с трейсбеком для лога
+        final_processing_time = time.time() - start_time
         tb_str = traceback.format_exc()
-        error_message_short = f"Processing error: {type(e).__name__}: {str(e)}" # Краткое сообщение для БД
+        error_message_short = f"Processing error: {type(e).__name__}: {str(e)}"
         error_message_full = f"{error_message_short}\nTraceback:\n{tb_str}"
-        # Логируем полную ошибку
         logger.error(f"Error processing image for request: {request_id}. Error: {error_message_full}", extra={"request_id": request_id})
 
-        # Попытка записать ошибку и частичные результаты в БД
         try:
-             logger.debug(f"[{request_id}] Attempting to convert potentially partial checks results after error...")
-             # Повторно конвертируем 'checks', который мог быть заполнен частично до ошибки
-             checks_final_on_error = convert_numpy_types(checks)
-             issues_on_error = convert_numpy_types(issues)
-
-             # Логируем данные ПЕРЕД отправкой в БД для отладки
-             logger.debug(f"[{request_id}] Data prepared for update_error:")
-             try:
-                 log_data = {
-                     "request_id": request_id, "error_message": error_message_short,
-                     "processing_time": final_processing_time, "status": "FAILED",
-                     "checks": checks_final_on_error, "issues": issues_on_error,
-                     "overall_status": overall_status
-                 }
-                 # Используем json.dumps для безопасного логирования
-                 logger.debug(json.dumps(log_data, indent=2, default=str))
-             except Exception as log_ex:
-                 logger.error(f"[{request_id}] Failed to serialize data for debug log: {log_ex}")
-                 logger.debug(f"[{request_id}] Raw checks on error: {checks}")
-
-             # Сохраняем ошибку и частичные результаты в БД
-             logger.debug(f"[{request_id}] Calling update_error in database...")
-             ValidationRequestRepository.update_error(
-                 request_id=request_id,
-                 error_message=error_message_short, # Краткое сообщение для БД
-                 processing_time=final_processing_time,
-                 status="FAILED", # Явно указываем FAILED
-                 checks=checks_final_on_error, # Конвертированные частичные результаты
-                 issues=issues_on_error,
-                 overall_status=overall_status
-             )
-             logger.info(f"Recorded FAILED status for request {request_id} due to processing error.")
-
+            checks_final_on_error = convert_numpy_types(checks)
+            issues_on_error = convert_numpy_types(issues)
+            ValidationRequestRepository.update_error(
+                request_id=request_id,
+                error_message=error_message_short,
+                processing_time=final_processing_time,
+                status="FAILED",
+                checks=checks_final_on_error,
+                issues=issues_on_error,
+                overall_status=overall_status
+            )
+            logger.info(f"Recorded FAILED status for request {request_id} due to processing error.")
         except Exception as db_e:
-            # Если запись ОШИБКИ в БД тоже не удалась
-            db_tb_str = traceback.format_exc()
-            # Записываем эту новую ошибку в основной лог
-            logger.error(f"CRITICAL: Failed to update full error status in DB for request {request_id}: {type(db_e).__name__}: {str(db_e)}\nTraceback:\n{db_tb_str}")
-            # Пытаемся записать МИНИМАЛЬНУЮ ошибку (только статус FAILED и краткое сообщение)
+            logger.error(f"Failed to update error status in DB for request {request_id}: {db_e}")
             try:
-                logger.debug(f"[{request_id}] Attempting to update minimal error status in DB...")
                 ValidationRequestRepository.update_error(
                     request_id=request_id,
-                    # Сообщение включает обе ошибки
                     error_message=f"Processing error: {type(e).__name__} | DB update failed: {type(db_e).__name__}",
                     processing_time=final_processing_time,
                     status="FAILED"
-                    # Не передаем checks, issues, overall_status, т.к. они могли вызвать ошибку db_e
                 )
-                logger.info(f"Recorded minimal FAILED status for request {request_id} after DB update failure.")
             except Exception as final_db_e:
-                 # Если и это не удалось - логируем критическую ошибку
-                 final_db_tb_str = traceback.format_exc()
-                 logger.critical(f"CRITICAL: Failed even to update minimal error status for request {request_id}: {type(final_db_e).__name__}: {str(final_db_e)}\nTraceback:\n{final_db_tb_str}")
+                logger.critical(f"Failed to update minimal error status for request {request_id}: {final_db_e}")
 
-    # --- Блок finally ---
     finally:
-        # Удаление файла из хранилища
         try:
             logger.debug(f"[{request_id}] Deleting file from storage: {file_path}")
             storage_client.delete_file(file_path)
             logger.debug(f"[{request_id}] File deleted from storage: {file_path}")
         except Exception as del_e:
-            # Логируем ошибку удаления, но не прерываем процесс
             logger.error(f"Failed to delete file {file_path} from storage: {type(del_e).__name__}: {str(del_e)}")
 
-        # Освобождаем слот обработки
         logger.debug(f"[{request_id}] Releasing processing slot...")
         release_processing_slot()
         logger.debug(f"[{request_id}] Processing slot released for request {request_id}.")
@@ -280,12 +269,16 @@ async def start_worker():
             if request_id and file_path:
                 logger.info(f"Dequeued task for request: {request_id} (file: {file_path})")
                 # Запускаем обработку задачи в фоне (не блокируем цикл воркера)
-                asyncio.create_task(process_image_task(request_id, file_path))
+                task = asyncio.create_task(process_image_task(request_id, file_path))
+                active_tasks.add(task)
             else:
                 logger.warning(f"Invalid task data received from queue: {task_data}")
 
             # Отмечаем задачу как выполненную в очереди asyncio
             processing_queue.task_done()
+
+            # Очищаем завершенные задачи
+            cleanup_completed_tasks()
 
         except asyncio.CancelledError:
              # Если воркер отменяют, логируем и выходим из цикла

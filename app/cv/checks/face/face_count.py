@@ -36,9 +36,14 @@ class FaceCountCheck(BaseCheck):
             Результаты проверки
         """
         try:
-            # Обнаружение лиц
-            # Используем импортированную функцию detect_faces напрямую
-            faces = detect_faces(image)
+            # Проверяем, есть ли кэшированные результаты детекции лиц
+            if context and 'cached_faces' in context:
+                faces = context['cached_faces']
+                logger.debug("Using cached face detection results")
+            else:
+                # Обнаружение лиц
+                faces = detect_faces(image)
+                logger.debug("Performed new face detection")
             
             # Фильтрация лиц по уровню уверенности
             confidence_threshold = self.config["face_confidence_threshold"]
@@ -73,7 +78,8 @@ class FaceCountCheck(BaseCheck):
                 "count": face_count,
                 "required_min": min_count,
                 "required_max": max_count,
-                "face_confidences": [round(face.get("confidence", 0), 2) for face in faces]
+                "face_confidences": [round(face.get("confidence", 0), 2) for face in faces],
+                "used_cache": 'cached_faces' in (context or {})
             }
             
             logger.info(f"Face count check: {face_count} faces detected, status: {status}")

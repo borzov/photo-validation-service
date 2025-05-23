@@ -10,9 +10,6 @@ system:
 
 # Порядок выполнения проверок
 check_order:
-  - fileFormat     # Проверка формата файла
-  - fileSize       # Проверка размера файла
-  - dimensions     # Проверка размеров изображения
   - colorMode      # Проверка цветового режима
   - realPhoto      # Проверка на реальную фотографию
   - faceCount      # Проверка числа лиц
@@ -36,12 +33,6 @@ checks:
     enabled: true
     params:
       max_size_bytes: 1048576  # 1MB
-  
-  dimensions:
-    enabled: true
-    params:
-      min_width: 400
-      min_height: 500
   
   colorMode:
     enabled: true
