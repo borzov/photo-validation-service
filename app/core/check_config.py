@@ -122,7 +122,8 @@ class CheckConfig:
         Регистрирует в конфигурации проверки, которые есть в реестре, но отсутствуют в конфигурации.
         """
         # Получаем все проверки из реестра
-        all_check_ids = set(check_registry.get_all_check_ids())
+        all_checks = check_registry.get_all_checks()
+        all_check_ids = set(all_checks.keys())
         
         # Получаем проверки из конфигурации
         configured_checks = set(self.config.get("checks", {}).keys())
@@ -142,10 +143,23 @@ class CheckConfig:
             for check_id in missing_checks:
                 check_class = check_registry.get_check(check_id)
                 if check_class:
-                    self.config["checks"][check_id] = {
-                        "enabled": True,
-                        "params": check_class.default_config
-                    }
+                    # Получаем метаданные для настройки по умолчанию
+                    try:
+                        metadata = check_class.get_metadata()
+                        default_params = {}
+                        for param in metadata.parameters:
+                            default_params[param.name] = param.default
+                        
+                        self.config["checks"][check_id] = {
+                            "enabled": metadata.enabled_by_default,
+                            "params": default_params
+                        }
+                    except Exception as e:
+                        logger.error(f"Failed to get metadata for {check_id}: {e}")
+                        self.config["checks"][check_id] = {
+                            "enabled": True,
+                            "params": {}
+                        }
             
             # Если нет порядка проверок, создаем его
             if "check_order" not in self.config:

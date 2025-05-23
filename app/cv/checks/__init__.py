@@ -1,5 +1,5 @@
 """
-Пакет с модулями проверок фотографий.
+Пакет проверок валидации фотографий.
 """
 from app.cv.checks.registry import check_registry
 

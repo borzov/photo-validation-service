@@ -14,8 +14,8 @@ class ExtraneousObjectsCheck(BaseCheck):
     Проверка наличия посторонних объектов и людей на фоне.
     """
     check_id = "extraneousObjects"
-    name = "Extraneous Objects Check"
-    description = "Checks for additional people or objects in the background"
+    name = "Проверка посторонних объектов"
+    description = "Проверяет наличие дополнительных людей или объектов на фоне"
     
     default_config = {
         "min_object_contour_area_ratio": 0.03,  # Минимальное отношение площади объекта к площади изображения

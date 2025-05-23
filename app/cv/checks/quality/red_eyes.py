@@ -24,8 +24,8 @@ class RedEyeCheck(BaseCheck):
     3. Сегментация области зрачка с использованием адаптивных порогов
     """
     check_id = "redEye"
-    name = "Red Eye Check"
-    description = "Checks if the eyes have red-eye effect caused by flash"
+    name = "Проверка красных глаз"
+    description = "Проверяет наличие эффекта красных глаз, вызванного вспышкой"
     
     default_config = {
         # Основные параметры

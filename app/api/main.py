@@ -2,7 +2,8 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 import time
-from app.api.endpoints import validation
+from app.api.endpoints import validation, config
+from app.admin.app import admin_app
 from app.db.models import init_db
 from app.core.config import settings
 from app.core.exceptions import PhotoValidationError
@@ -64,7 +65,10 @@ async def validation_exception_handler(request: Request, exc: PhotoValidationErr
 
 # Подключение роутеров
 app.include_router(validation.router, prefix="/api/v1")
+app.include_router(config.router, prefix="/api/v1/config", tags=["Configuration Management"])
 
+# Подключение админ приложения
+app.mount("/admin", admin_app)
 
 @app.get("/health")
 async def health_check():

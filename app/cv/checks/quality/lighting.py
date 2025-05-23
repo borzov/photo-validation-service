@@ -1,129 +1,191 @@
 """
-Модуль для проверки освещения на изображении.
+Module for image lighting quality check.
 """
 import cv2
 import numpy as np
 from typing import Dict, Any
 import math
-from app.cv.checks.base import BaseCheck
+from app.cv.checks.registry import BaseCheck, CheckMetadata, CheckParameter
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 class LightingCheck(BaseCheck):
     """
-    Проверка освещения на изображении.
+    Check lighting quality in image.
     """
-    check_id = "lighting"
-    name = "Lighting Check"
-    description = "Checks if the lighting is appropriate (not too dark, bright, or low contrast)"
     
-    default_config = {
-        "underexposure_threshold": 25,    # Порог для недоэкспонирования
-        "overexposure_threshold": 240,    # Порог для переэкспонирования
-        "low_contrast_threshold": 20,     # Порог для низкого контраста
-        "shadow_ratio_threshold": 0.4,    # Порог для доли темных пикселей
-        "highlight_ratio_threshold": 0.3   # Порог для доли ярких пикселей
-    }
+    @classmethod
+    def get_metadata(cls) -> CheckMetadata:
+        """Return metadata for this check module."""
+        return CheckMetadata(
+            name="lighting",
+            display_name="Lighting Check",
+            description="Checks lighting quality (underexposure, overexposure, low contrast)",
+            category="image_quality",
+            version="1.0.0",
+            author="Photo Validation Team",
+            parameters=[
+                CheckParameter(
+                    name="underexposure_threshold",
+                    type="int",
+                    default=25,
+                    description="Threshold for underexposure (mean brightness)",
+                    min_value=5,
+                    max_value=100,
+                    required=True
+                ),
+                CheckParameter(
+                    name="overexposure_threshold",
+                    type="int",
+                    default=240,
+                    description="Threshold for overexposure (mean brightness)",
+                    min_value=200,
+                    max_value=255,
+                    required=True
+                ),
+                CheckParameter(
+                    name="low_contrast_threshold",
+                    type="int",
+                    default=20,
+                    description="Threshold for low contrast (standard deviation)",
+                    min_value=5,
+                    max_value=100,
+                    required=True
+                ),
+                CheckParameter(
+                    name="shadow_ratio_threshold",
+                    type="float",
+                    default=0.4,
+                    description="Maximum ratio of dark pixels",
+                    min_value=0.1,
+                    max_value=0.8,
+                    required=False
+                ),
+                CheckParameter(
+                    name="highlight_ratio_threshold",
+                    type="float",
+                    default=0.3,
+                    description="Maximum ratio of bright pixels",
+                    min_value=0.1,
+                    max_value=0.8,
+                    required=False
+                )
+            ],
+            dependencies=["opencv-python"],
+            enabled_by_default=True
+        )
+    
+    def __init__(self, **parameters):
+        """Initialize with parameters."""
+        self.parameters = parameters
+        metadata = self.get_metadata()
+        
+        # Set default values
+        for param in metadata.parameters:
+            if param.name not in self.parameters:
+                self.parameters[param.name] = param.default
+        
+        # Validate parameters
+        if not self.validate_parameters(self.parameters):
+            raise ValueError("Invalid parameters provided")
     
     def run(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Method for compatibility with old runner."""
+        return self.check(image, context)
+    
+    def check(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        Выполняет проверку освещения.
+        Perform lighting quality check on the image.
         
         Args:
-            image: Изображение для проверки
-            context: Контекст с результатами предыдущих проверок, должен содержать context["face"]["bbox"]
+            image: Image to check
+            context: Context with previous check results
             
         Returns:
-            Результаты проверки
+            Check results
         """
-        if not context or "face" not in context or "bbox" not in context["face"]:
-            logger.warning("No face found in context for lighting check")
-            return {
-                "status": "SKIPPED",
-                "reason": "No face detected",
-                "details": None
-            }
-            
         try:
-            # Получаем область лица из контекста
-            x, y, width, height = context["face"]["bbox"]
-            face_region = image[y:y+height, x:x+width]
+            # Convert to grayscale for brightness analysis
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             
-            if face_region.size == 0:
-                logger.warning("Face region is empty, skipping lighting check")
-                return {
-                    "status": "NEEDS_REVIEW",
-                    "reason": "Empty face region",
-                    "details": {}
-                }
-                
-            # Конвертируем в оттенки серого
-            gray = cv2.cvtColor(face_region, cv2.COLOR_BGR2GRAY)
+            # Basic statistics
+            mean_brightness = np.mean(gray)
+            std_brightness = np.std(gray)
             
-            # Вычисляем среднюю яркость и стандартное отклонение
-            mean_brightness_np = np.mean(gray)
-            std_brightness_np = np.std(gray)
+            # Analyze dark and bright areas
+            total_pixels = gray.size
+            dark_pixels = np.sum(gray < 50)
+            bright_pixels = np.sum(gray > 200)
             
-            # Вычисляем гистограмму для анализа темных и светлых областей
-            hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
-            hist_norm = hist.ravel() / hist.sum()
+            shadow_ratio = dark_pixels / total_pixels
+            highlight_ratio = bright_pixels / total_pixels
             
-            # Доля темных и светлых пикселей
-            underexposure_threshold = self.config["underexposure_threshold"]
-            overexposure_threshold = self.config["overexposure_threshold"]
-            shadow_ratio = np.sum(hist_norm[:underexposure_threshold])
-            highlight_ratio = np.sum(hist_norm[overexposure_threshold:])
+            # Get thresholds from parameters
+            underexposure_threshold = self.parameters["underexposure_threshold"]
+            overexposure_threshold = self.parameters["overexposure_threshold"]
+            low_contrast_threshold = self.parameters["low_contrast_threshold"]
+            shadow_ratio_threshold = self.parameters["shadow_ratio_threshold"]
+            highlight_ratio_threshold = self.parameters["highlight_ratio_threshold"]
             
-            # Проверка на NaN и конвертация в Python типы
-            mean_brightness = float(mean_brightness_np) if not math.isnan(mean_brightness_np) else 0.0
-            std_brightness = float(std_brightness_np) if not math.isnan(std_brightness_np) else 0.0
-            shadow_ratio = float(shadow_ratio) if not math.isnan(shadow_ratio) else 0.0
-            highlight_ratio = float(highlight_ratio) if not math.isnan(highlight_ratio) else 0.0
-            
-            # Детали для ответа
             details = {
-                "mean_brightness": round(mean_brightness, 2),
-                "std_dev_brightness": round(std_brightness, 2),
-                "shadow_pixel_ratio": round(shadow_ratio, 3),
-                "highlight_pixel_ratio": round(highlight_ratio, 3)
+                "mean_brightness": float(mean_brightness),
+                "std_brightness": float(std_brightness),
+                "shadow_ratio": float(shadow_ratio),
+                "highlight_ratio": float(highlight_ratio),
+                "thresholds": {
+                    "underexposure": underexposure_threshold,
+                    "overexposure": overexposure_threshold,
+                    "low_contrast": low_contrast_threshold,
+                    "shadow_ratio": shadow_ratio_threshold,
+                    "highlight_ratio": highlight_ratio_threshold
+                },
+                "parameters_used": self.parameters
             }
             
-            # Пороговые значения из конфигурации
-            low_contrast_threshold = self.config["low_contrast_threshold"]
-            shadow_ratio_threshold = self.config["shadow_ratio_threshold"]
-            highlight_ratio_threshold = self.config["highlight_ratio_threshold"]
-            
-            # Список проблем с освещением
+            # Check various lighting issues
             issues = []
             
-            # Проверки на недостаточное/избыточное освещение и низкий контраст
-            if mean_brightness < underexposure_threshold or shadow_ratio > shadow_ratio_threshold:
-                issues.append(f"UNDEREXPOSED (mean={mean_brightness:.1f}, shadow_ratio={shadow_ratio:.3f})")
-                
-            if mean_brightness > overexposure_threshold or highlight_ratio > highlight_ratio_threshold:
-                issues.append(f"OVEREXPOSED (mean={mean_brightness:.1f}, highlight_ratio={highlight_ratio:.3f})")
-                
-            if std_brightness < low_contrast_threshold:
-                issues.append(f"LOW_CONTRAST (std_dev={std_brightness:.1f})")
+            # Underexposure
+            if mean_brightness < underexposure_threshold:
+                issues.append(f"Underexposure (brightness: {mean_brightness:.1f} < {underexposure_threshold})")
             
-            # Итоговый результат
+            # Overexposure
+            if mean_brightness > overexposure_threshold:
+                issues.append(f"Overexposure (brightness: {mean_brightness:.1f} > {overexposure_threshold})")
+            
+            # Low contrast
+            if std_brightness < low_contrast_threshold:
+                issues.append(f"Low contrast (σ: {std_brightness:.1f} < {low_contrast_threshold})")
+            
+            # Too many shadows
+            if shadow_ratio > shadow_ratio_threshold:
+                issues.append(f"Too many shadows ({shadow_ratio:.1%} > {shadow_ratio_threshold:.1%})")
+            
+            # Too many highlights
+            if highlight_ratio > highlight_ratio_threshold:
+                issues.append(f"Too many highlights ({highlight_ratio:.1%} > {highlight_ratio_threshold:.1%})")
+            
+            # Final result
             if issues:
                 return {
+                    "check": "lighting",
                     "status": "FAILED",
-                    "reason": ", ".join(issues),
+                    "reason": "; ".join(issues),
                     "details": details
                 }
             else:
                 return {
+                    "check": "lighting",
                     "status": "PASSED",
                     "details": details
                 }
                 
         except Exception as e:
-            logger.error(f"Error during lighting check: {e}")
+            logger.error(f"Error checking lighting: {e}")
             return {
+                "check": "lighting",
                 "status": "NEEDS_REVIEW",
-                "reason": f"Lighting check error: {str(e)}",
-                "details": {"error": str(e)}
+                "reason": f"Error during lighting check: {str(e)}",
+                "details": {"error": str(e), "parameters_used": self.parameters}
             }

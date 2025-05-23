@@ -15,8 +15,8 @@ class RealPhotoCheck(BaseCheck):
     а не рисунком, скетчем или компьютерной графикой.
     """
     check_id = "realPhoto"
-    name = "Real Photo Check"
-    description = "Checks if the image is a real photo and not a drawing, sketch or computer graphics"
+    name = "Проверка реальности фотографии"
+    description = "Проверяет, является ли изображение реальной фотографией, а не рисунком, скетчем или компьютерной графикой"
     
     default_config = {
         "gradient_mean_threshold": 20,      # Пороговое значение для градиентов

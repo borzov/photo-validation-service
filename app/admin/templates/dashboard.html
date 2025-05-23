@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+    <div class="flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900 flex items-center">
+                <i data-lucide="layout-dashboard" class="h-8 w-8 mr-3 text-blue-600"></i>
+                Дашборд конфигурации
+            </h1>
+            <p class="text-gray-600 mt-2">Обзор системы валидации фотографий</p>
+        </div>
+        <div class="text-sm text-gray-500">
+            Последнее изменение: {{ config.last_modified.strftime('%d.%m.%Y %H:%M') if config.last_modified else 'Неизвестно' }}
+        </div>
+    </div>
+</div>
+
+<!-- Quick Stats Cards -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+    <div class="metric-card">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-white/80 text-sm">Потоков обработки</p>
+                <p class="text-3xl font-bold text-white">{{ config.system.processing.max_concurrent if config.system.processing else 5 }}</p>
+            </div>
+            <i data-lucide="cpu" class="h-8 w-8 text-white/60"></i>
+        </div>
+    </div>
+    
+    <div class="metric-card" style="background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-white/80 text-sm">Активных проверок</p>
+                <p class="text-3xl font-bold text-white">
+                    {% set active_checks = 0 %}
+                    {% if config.validation.checks.face_detection.enabled %}{% set active_checks = active_checks + 1 %}{% endif %}
+                    {% if config.validation.checks.image_quality.enabled %}{% set active_checks = active_checks + 1 %}{% endif %}
+                    {% if config.validation.checks.background.enabled %}{% set active_checks = active_checks + 1 %}{% endif %}
+                    {% if config.validation.checks.object_detection.enabled %}{% set active_checks = active_checks + 1 %}{% endif %}
+                    {% if config.validation.checks.accessories.enabled %}{% set active_checks = active_checks + 1 %}{% endif %}
+                    {{ active_checks }}
+                </p>
+            </div>
+            <i data-lucide="check-circle" class="h-8 w-8 text-white/60"></i>
+        </div>
+    </div>
+    
+    <div class="metric-card" style="background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-white/80 text-sm">Форматов файлов</p>
+                <p class="text-3xl font-bold text-white">{{ config.validation.image_requirements.allowed_formats|length if config.validation.image_requirements.allowed_formats else 2 }}</p>
+            </div>
+            <i data-lucide="file-image" class="h-8 w-8 text-white/60"></i>
+        </div>
+    </div>
+    
+    <div class="metric-card" style="background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
+        <div class="flex items-center justify-between">
+            <div>
+                <p class="text-white/80 text-sm">Макс. размер (МБ)</p>
+                <p class="text-3xl font-bold text-white">{{ (config.validation.image_requirements.max_file_size / 1024 / 1024) | round(1) if config.validation.image_requirements.max_file_size else 5.0 }}</p>
+            </div>
+            <i data-lucide="hard-drive" class="h-8 w-8 text-white/60"></i>
+        </div>
+    </div>
+</div>
+
+<!-- Configuration Overview -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <!-- System Configuration -->
+    <div class="card p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <i data-lucide="settings" class="h-5 w-5 mr-2 text-blue-600"></i>
+            Системные настройки
+        </h3>
+        
+        <div class="space-y-4">
+            <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                <span class="text-sm font-medium text-gray-700">Макс. одновременных задач</span>
+                <span class="text-sm text-gray-900">{{ config.system.processing.max_concurrent if config.system.processing else 5 }}</span>
+            </div>
+            
+            <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                <span class="text-sm font-medium text-gray-700">Таймаут проверки</span>
+                <span class="text-sm text-gray-900">{{ config.system.max_check_time if config.system.max_check_time else 5.0 }}с</span>
+            </div>
+            
+            <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                <span class="text-sm font-medium text-gray-700">Остановка при ошибке</span>
+                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full {% if config.system.stop_on_failure %}bg-yellow-100 text-yellow-800{% else %}bg-green-100 text-green-800{% endif %}">
+                    {% if config.system.stop_on_failure %}Да{% else %}Нет{% endif %}
+                </span>
+            </div>
+            
+            <div class="flex justify-between items-center py-2">
+                <span class="text-sm font-medium text-gray-700">Максимальный размер файла</span>
+                <span class="text-sm text-gray-900">{{ (config.validation.image_requirements.max_file_size / 1024 / 1024) | round(1) if config.validation.image_requirements.max_file_size else 5.0 }}МБ</span>
+            </div>
+        </div>
+        
+        <div class="mt-6">
+            <a href="/admin/system" class="btn-primary">
+                <i data-lucide="settings" class="h-4 w-4 mr-1"></i>
+                Настроить систему
+            </a>
+        </div>
+    </div>
+    
+    <!-- Validation Checks Status -->
+    <div class="card p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <i data-lucide="check-circle" class="h-5 w-5 mr-2 text-green-600"></i>
+            Состояние проверок
+        </h3>
+        
+        <div class="space-y-4">
+            <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                <span class="text-sm font-medium text-gray-700">Детекция лиц</span>
+                <div class="flex items-center space-x-2">
+                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full {% if config.validation.checks.face_detection.enabled %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+                        {% if config.validation.checks.face_detection.enabled %}Включено{% else %}Отключено{% endif %}
+                    </span>
+                    {% if config.validation.checks.face_detection.enabled %}
+                    <span class="text-xs text-gray-500">({{ config.validation.checks.face_detection.min_count }}-{{ config.validation.checks.face_detection.max_count }} лиц)</span>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                <span class="text-sm font-medium text-gray-700">Поза лица</span>
+                <div class="flex items-center space-x-2">
+                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full {% if config.validation.checks.face_pose.enabled %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+                        {% if config.validation.checks.face_pose.enabled %}Включено{% else %}Отключено{% endif %}
+                    </span>
+                    {% if config.validation.checks.face_pose.enabled %}
+                    <span class="text-xs text-gray-500">(±{{ config.validation.checks.face_pose.max_yaw }}°)</span>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                <span class="text-sm font-medium text-gray-700">Качество изображения</span>
+                <div class="flex items-center space-x-2">
+                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full {% if config.validation.checks.image_quality.enabled %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+                        {% if config.validation.checks.image_quality.enabled %}Включено{% else %}Отключено{% endif %}
+                    </span>
+                    {% if config.validation.checks.image_quality.enabled %}
+                    <span class="text-xs text-gray-500">(размытость: {{ config.validation.checks.image_quality.blurriness_threshold }})</span>
+                    {% endif %}
+                </div>
+            </div>
+            
+            <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                <span class="text-sm font-medium text-gray-700">Анализ фона</span>
+                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full {% if config.validation.checks.background.enabled %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+                    {% if config.validation.checks.background.enabled %}Включено{% else %}Отключено{% endif %}
+                </span>
+            </div>
+            
+            <div class="flex justify-between items-center py-2 border-b border-gray-100">
+                <span class="text-sm font-medium text-gray-700">Детекция объектов</span>
+                <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full {% if config.validation.checks.object_detection.enabled %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+                    {% if config.validation.checks.object_detection.enabled %}Включено{% else %}Отключено{% endif %}
+                </span>
+            </div>
+            
+            <div class="flex justify-between items-center py-2">
+                <span class="text-sm font-medium text-gray-700">Детекция аксессуаров</span>
+                <div class="flex items-center space-x-2">
+                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full {% if config.validation.checks.accessories.enabled %}bg-green-100 text-green-800{% else %}bg-gray-100 text-gray-800{% endif %}">
+                        {% if config.validation.checks.accessories.enabled %}Включено{% else %}Отключено{% endif %}
+                    </span>
+                    {% if config.validation.checks.accessories.enabled %}
+                    <span class="text-xs text-gray-500">
+                        {% set accessories = [] %}
+                        {% if config.validation.checks.accessories.glasses_detection %}{% set _ = accessories.append('очки') %}{% endif %}
+                        {% if config.validation.checks.accessories.headwear_detection %}{% set _ = accessories.append('головные уборы') %}{% endif %}
+                        {% if config.validation.checks.accessories.hand_detection %}{% set _ = accessories.append('руки') %}{% endif %}
+                        ({{ accessories|join(', ') }})
+                    </span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <div class="mt-6">
+            <a href="/admin/validation" class="btn-primary">
+                <i data-lucide="check-circle" class="h-4 w-4 mr-1"></i>
+                Настроить валидацию
+            </a>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="mt-8">
+    <div class="card p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+            <i data-lucide="zap" class="h-5 w-5 mr-2 text-yellow-600"></i>
+            Быстрые действия
+        </h3>
+        
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <a href="/admin/operations" class="flex items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                <i data-lucide="activity" class="h-5 w-5 mr-2 text-blue-600"></i>
+                <span class="font-medium">Мониторинг операций</span>
+            </a>
+            
+            <a href="/api/v1/config" target="_blank" class="flex items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                <i data-lucide="code" class="h-5 w-5 mr-2 text-green-600"></i>
+                <span class="font-medium">Документация API</span>
+            </a>
+            
+            <a href="/health" target="_blank" class="flex items-center justify-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                <i data-lucide="heart" class="h-5 w-5 mr-2 text-red-600"></i>
+                <span class="font-medium">Состояние сервиса</span>
+            </a>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Initialize Lucide icons
+    document.addEventListener('DOMContentLoaded', function() {
+        lucide.createIcons();
+    });
+</script>
+{% endblock %} 

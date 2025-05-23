@@ -6,6 +6,11 @@
 /tests/reports/
 /local_storage/
 
+# Игнорирование SQLite файлов (только PostgreSQL должен использоваться)
+*.db
+*.sqlite
+*.sqlite3
+
 # Игнорирование системных файлов
 .DS_Store
 

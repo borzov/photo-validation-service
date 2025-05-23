@@ -1,78 +1,129 @@
 """
-Модуль для проверки цветового режима изображения.
+Module for checking image color mode.
 """
 import cv2
 import numpy as np
 from typing import Dict, Any
-from app.cv.checks.base import BaseCheck
+from app.cv.checks.registry import BaseCheck, CheckMetadata, CheckParameter
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 class ColorModeCheck(BaseCheck):
     """
-    Проверка, является ли изображение цветным или черно-белым.
+    Check whether image is color or grayscale.
     """
-    check_id = "colorMode"
-    name = "Color Mode Check"
-    description = "Checks if the image is in color or grayscale"
     
-    default_config = {
-        "grayscale_saturation_threshold": 15  # Порог насыщенности для определения ч/б изображения
-    }
+    @classmethod
+    def get_metadata(cls) -> CheckMetadata:
+        """Return metadata for this check module."""
+        return CheckMetadata(
+            name="color_mode",
+            display_name="Color Mode Check",
+            description="Checks whether image is color or grayscale",
+            category="image_quality",
+            version="1.0.0",
+            author="Photo Validation Team",
+            parameters=[
+                CheckParameter(
+                    name="grayscale_saturation_threshold",
+                    type="int",
+                    default=15,
+                    description="Saturation threshold for determining grayscale image",
+                    min_value=5,
+                    max_value=50,
+                    required=True
+                ),
+                CheckParameter(
+                    name="require_color",
+                    type="bool",
+                    default=True,
+                    description="Whether to require color image (if False, any is accepted)",
+                    required=False
+                )
+            ],
+            dependencies=["opencv-python"],
+            enabled_by_default=True
+        )
+    
+    def __init__(self, **parameters):
+        """Initialize with parameters."""
+        self.parameters = parameters
+        metadata = self.get_metadata()
+        
+        # Set default values
+        for param in metadata.parameters:
+            if param.name not in self.parameters:
+                self.parameters[param.name] = param.default
+        
+        # Validate parameters
+        if not self.validate_parameters(self.parameters):
+            raise ValueError("Invalid parameters provided")
     
     def run(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Method for compatibility with old runner."""
+        return self.check(image, context)
+    
+    def check(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        Выполняет проверку цветового режима изображения.
+        Perform color mode check on the image.
         
         Args:
-            image: Изображение для проверки
-            context: Контекст с результатами предыдущих проверок
+            image: Image to check
+            context: Context with previous check results
             
         Returns:
-            Результаты проверки
+            Check results
         """
         try:
-            # Проверяем количество каналов
-            if len(image.shape) < 3 or image.shape[2] < 3:
-                return {
-                    "status": "FAILED",
-                    "reason": "Image is not in color (channels < 3)",
-                    "details": f"Shape: {image.shape}"
-                }
-                
-            # Для цветного изображения проверяем уровень насыщенности
+            # Convert to HSV for saturation analysis
             hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+            
+            # Extract saturation channel (S)
             saturation = hsv[:, :, 1]
             
-            # Вычисляем среднюю насыщенность
-            mean_saturation_np = np.mean(saturation)
-            mean_saturation = float(mean_saturation_np)
+            # Calculate mean saturation
+            mean_saturation = np.mean(saturation)
             
-            # Порог из конфигурации
-            threshold = self.config["grayscale_saturation_threshold"]
+            threshold = self.parameters["grayscale_saturation_threshold"]
+            require_color = self.parameters["require_color"]
             
-            # Определяем, является ли изображение по существу серым
-            is_grayscale = mean_saturation < threshold
+            # Determine if image is color
+            is_color = mean_saturation > threshold
             
-            if is_grayscale:
-                logger.info(f"Image appears to be grayscale: mean_saturation={mean_saturation:.2f}, threshold={threshold}")
+            details = {
+                "mean_saturation": float(mean_saturation),
+                "threshold": threshold,
+                "is_color": is_color,
+                "parameters_used": self.parameters
+            }
+            
+            # Check requirements compliance
+            if require_color and not is_color:
                 return {
+                    "check": "color_mode",
                     "status": "FAILED",
-                    "reason": "Image appears to be grayscale (low saturation)",
-                    "details": f"Mean saturation: {mean_saturation:.2f} (threshold: {threshold})"
+                    "reason": f"Image is grayscale (saturation: {mean_saturation:.1f} <= {threshold})",
+                    "details": details
+                }
+            elif not require_color or is_color:
+                return {
+                    "check": "color_mode", 
+                    "status": "PASSED",
+                    "details": details
                 }
             else:
-                logger.info(f"Image is in color: mean_saturation={mean_saturation:.2f}, threshold={threshold}")
                 return {
+                    "check": "color_mode",
                     "status": "PASSED",
-                    "details": "Color"
+                    "details": details
                 }
                 
         except Exception as e:
-            logger.error(f"Error during color mode check: {e}")
+            logger.error(f"Error checking color mode: {e}")
             return {
-                "status": "FAILED",
-                "reason": f"Color mode check error: {str(e)}",
-                "details": {"error": str(e)}
+                "check": "color_mode",
+                "status": "NEEDS_REVIEW",
+                "reason": f"Error during color mode check: {str(e)}",
+                "details": {"error": str(e), "parameters_used": self.parameters}
             }

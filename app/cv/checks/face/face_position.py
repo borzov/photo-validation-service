@@ -14,8 +14,8 @@ class FacePositionCheck(BaseCheck):
     Проверка положения и размера лица на изображении.
     """
     check_id = "facePosition"
-    name = "Face Position Check"
-    description = "Checks if the face is properly positioned and sized in the image"
+    name = "Проверка положения лица"
+    description = "Проверяет правильность положения и размера лица на изображении"
     
     default_config = {
         "face_min_area_ratio": 0.05,

@@ -1,0 +1,454 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">Автоматическое обнаружение модулей</h1>
+            <p class="text-gray-600 mt-2">Система автоматически обнаруживает и регистрирует модули проверки</p>
+        </div>
+        <button onclick="refreshDiscovery()" class="btn-primary">
+            <i data-lucide="refresh-cw" class="h-4 w-4 mr-2"></i>
+            Обновить
+        </button>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div class="card p-6">
+            <div class="flex items-center">
+                <div class="p-2 bg-blue-100 rounded-lg">
+                    <i data-lucide="package" class="h-6 w-6 text-blue-600"></i>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-600">Всего модулей</p>
+                    <p class="text-2xl font-bold text-gray-900" id="total-checks">{{ stats.total_checks if stats else 0 }}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-6">
+            <div class="flex items-center">
+                <div class="p-2 bg-green-100 rounded-lg">
+                    <i data-lucide="folder" class="h-6 w-6 text-green-600"></i>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-600">Категорий</p>
+                    <p class="text-2xl font-bold text-gray-900" id="categories-count">{{ stats.categories_count if stats else 0 }}</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-6">
+            <div class="flex items-center">
+                <div class="p-2 bg-purple-100 rounded-lg">
+                    <i data-lucide="search" class="h-6 w-6 text-purple-600"></i>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-600">Статус обнаружения</p>
+                    <p class="text-sm font-bold" id="discovery-status">
+                        {% if stats and stats.discovery_completed %}
+                            <span class="text-green-600">Завершено</span>
+                        {% else %}
+                            <span class="text-yellow-600">В процессе</span>
+                        {% endif %}
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-6">
+            <div class="flex items-center">
+                <div class="p-2 bg-orange-100 rounded-lg">
+                    <i data-lucide="activity" class="h-6 w-6 text-orange-600"></i>
+                </div>
+                <div class="ml-4">
+                    <p class="text-sm font-medium text-gray-600">Активных</p>
+                    <p class="text-2xl font-bold text-gray-900" id="active-checks">-</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Categories Overview -->
+    <div class="card p-6">
+        <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+            <i data-lucide="layers" class="h-5 w-5 mr-2 text-blue-600"></i>
+            Категории модулей
+        </h2>
+        <div id="categories-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <!-- Будет заполнено через JavaScript -->
+        </div>
+    </div>
+
+    <!-- Discovered Checks -->
+    <div class="card p-6">
+        <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+            <i data-lucide="list" class="h-5 w-5 mr-2 text-green-600"></i>
+            Обнаруженные модули
+        </h2>
+        
+        <!-- Filter and Search -->
+        <div class="mb-4 flex flex-col sm:flex-row gap-4">
+            <div class="flex-1">
+                <input type="text" id="search-checks" placeholder="Поиск модулей..." 
+                       class="form-input w-full">
+            </div>
+            <div>
+                <select id="filter-category" class="form-input">
+                    <option value="">Все категории</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Checks Table -->
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Модуль
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Категория
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Версия
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Параметры
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Статус
+                        </th>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                            Действия
+                        </th>
+                    </tr>
+                </thead>
+                <tbody id="checks-table-body" class="bg-white divide-y divide-gray-200">
+                    <!-- Будет заполнено через JavaScript -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Check Details Modal -->
+    <div id="check-details-modal" class="fixed inset-0 bg-gray-600 bg-opacity-50 hidden z-50">
+        <div class="flex items-center justify-center min-h-screen p-4">
+            <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-screen overflow-y-auto">
+                <div class="p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold text-gray-900" id="modal-title">Детали модуля</h3>
+                        <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600">
+                            <i data-lucide="x" class="h-6 w-6"></i>
+                        </button>
+                    </div>
+                    <div id="modal-content">
+                        <!-- Будет заполнено через JavaScript -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allChecks = {};
+let allCategories = {};
+
+// Загрузка данных при загрузке страницы
+document.addEventListener('DOMContentLoaded', function() {
+    loadDiscoveredChecks();
+    lucide.createIcons();
+});
+
+async function loadDiscoveredChecks() {
+    try {
+        // Загружаем обнаруженные модули
+        const checksResponse = await fetch('/admin/api/checks/discovery');
+        const checksData = await checksResponse.json();
+        
+        if (checksData.success) {
+            allChecks = checksData.checks;
+            updateStats(checksData.stats);
+        }
+
+        // Загружаем категории
+        const categoriesResponse = await fetch('/admin/api/checks/categories');
+        const categoriesData = await categoriesResponse.json();
+        
+        if (categoriesData.success) {
+            allCategories = categoriesData.categories;
+            renderCategories();
+            renderChecksTable();
+            populateCategoryFilter();
+        }
+
+    } catch (error) {
+        console.error('Error loading discovered checks:', error);
+        showNotification('Ошибка загрузки данных', 'error');
+    }
+}
+
+function updateStats(stats) {
+    document.getElementById('total-checks').textContent = stats.total_checks;
+    document.getElementById('categories-count').textContent = stats.categories_count;
+    
+    const statusElement = document.getElementById('discovery-status');
+    if (stats.discovery_completed) {
+        statusElement.innerHTML = '<span class="text-green-600">Завершено</span>';
+    } else {
+        statusElement.innerHTML = '<span class="text-yellow-600">В процессе</span>';
+    }
+}
+
+function renderCategories() {
+    const grid = document.getElementById('categories-grid');
+    grid.innerHTML = '';
+
+    Object.entries(allCategories).forEach(([categoryName, checks]) => {
+        const categoryCard = document.createElement('div');
+        categoryCard.className = 'p-4 border border-gray-200 rounded-lg hover:shadow-md transition-shadow';
+        categoryCard.innerHTML = `
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="font-medium text-gray-900">${getCategoryDisplayName(categoryName)}</h3>
+                <span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded">${checks.length}</span>
+            </div>
+            <p class="text-sm text-gray-600">${getCategoryDescription(categoryName)}</p>
+        `;
+        grid.appendChild(categoryCard);
+    });
+}
+
+function renderChecksTable() {
+    const tbody = document.getElementById('checks-table-body');
+    tbody.innerHTML = '';
+
+    Object.entries(allChecks).forEach(([checkName, check]) => {
+        const row = document.createElement('tr');
+        row.className = 'hover:bg-gray-50';
+        row.innerHTML = `
+            <td class="px-6 py-4 whitespace-nowrap">
+                <div>
+                    <div class="text-sm font-medium text-gray-900">${check.display_name}</div>
+                    <div class="text-sm text-gray-500">${check.description}</div>
+                </div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                    ${getCategoryDisplayName(check.category)}
+                </span>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                ${check.version}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                ${check.parameters.length} параметров
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+                ${check.enabled_by_default ? 
+                    '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Включен</span>' :
+                    '<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">Отключен</span>'
+                }
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                <button onclick="showCheckDetails('${checkName}')" class="text-blue-600 hover:text-blue-900">
+                    Подробнее
+                </button>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+function populateCategoryFilter() {
+    const select = document.getElementById('filter-category');
+    select.innerHTML = '<option value="">Все категории</option>';
+    
+    Object.keys(allCategories).forEach(categoryName => {
+        const option = document.createElement('option');
+        option.value = categoryName;
+        option.textContent = getCategoryDisplayName(categoryName);
+        select.appendChild(option);
+    });
+}
+
+async function showCheckDetails(checkName) {
+    try {
+        const response = await fetch(`/admin/api/checks/${checkName}/details`);
+        const data = await response.json();
+        
+        if (data.success) {
+            const check = data.check;
+            document.getElementById('modal-title').textContent = check.display_name;
+            
+            const content = document.getElementById('modal-content');
+            content.innerHTML = `
+                <div class="space-y-6">
+                    <div>
+                        <h4 class="text-lg font-medium text-gray-900 mb-2">Основная информация</h4>
+                        <dl class="grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">Название</dt>
+                                <dd class="text-sm text-gray-900">${check.display_name}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">Версия</dt>
+                                <dd class="text-sm text-gray-900">${check.version}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">Автор</dt>
+                                <dd class="text-sm text-gray-900">${check.author}</dd>
+                            </div>
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">Категория</dt>
+                                <dd class="text-sm text-gray-900">${getCategoryDisplayName(check.category)}</dd>
+                            </div>
+                        </dl>
+                        <div class="mt-4">
+                            <dt class="text-sm font-medium text-gray-500">Описание</dt>
+                            <dd class="text-sm text-gray-900">${check.description}</dd>
+                        </div>
+                    </div>
+                    
+                    ${check.parameters.length > 0 ? `
+                    <div>
+                        <h4 class="text-lg font-medium text-gray-900 mb-2">Параметры</h4>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Параметр</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Тип</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">По умолчанию</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Описание</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    ${check.parameters.map(param => `
+                                        <tr>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                ${param.name}
+                                                ${param.required ? '<span class="text-red-500">*</span>' : ''}
+                                            </td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${param.type}</td>
+                                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${param.default}</td>
+                                            <td class="px-6 py-4 text-sm text-gray-500">${param.description}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    ` : ''}
+                    
+                    ${check.dependencies.length > 0 ? `
+                    <div>
+                        <h4 class="text-lg font-medium text-gray-900 mb-2">Зависимости</h4>
+                        <div class="flex flex-wrap gap-2">
+                            ${check.dependencies.map(dep => `
+                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                                    ${dep}
+                                </span>
+                            `).join('')}
+                        </div>
+                    </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            document.getElementById('check-details-modal').classList.remove('hidden');
+        }
+    } catch (error) {
+        console.error('Error loading check details:', error);
+        showNotification('Ошибка загрузки деталей модуля', 'error');
+    }
+}
+
+function closeModal() {
+    document.getElementById('check-details-modal').classList.add('hidden');
+}
+
+async function refreshDiscovery() {
+    showNotification('Обновление данных...', 'info');
+    await loadDiscoveredChecks();
+    showNotification('Данные обновлены', 'success');
+}
+
+function getCategoryDisplayName(category) {
+    const displayNames = {
+        'face_detection': 'Детекция лиц',
+        'image_quality': 'Качество изображения',
+        'background': 'Анализ фона',
+        'object_detection': 'Детекция объектов',
+        'accessories': 'Детекция аксессуаров',
+        'pose': 'Анализ позы',
+        'lighting': 'Анализ освещения'
+    };
+    return displayNames[category] || category.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+}
+
+function getCategoryDescription(category) {
+    const descriptions = {
+        'face_detection': 'Модули для обнаружения и анализа лиц',
+        'image_quality': 'Модули для оценки качества изображения',
+        'background': 'Модули для анализа фона изображения',
+        'object_detection': 'Модули для обнаружения объектов',
+        'accessories': 'Модули для обнаружения аксессуаров',
+        'pose': 'Модули для анализа позы',
+        'lighting': 'Модули для анализа освещения'
+    };
+    return descriptions[category] || `Модули категории ${category}`;
+}
+
+function showNotification(message, type = 'info') {
+    // Простая реализация уведомлений
+    const notification = document.createElement('div');
+    notification.className = `fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 ${
+        type === 'success' ? 'bg-green-500 text-white' :
+        type === 'error' ? 'bg-red-500 text-white' :
+        'bg-blue-500 text-white'
+    }`;
+    notification.textContent = message;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, 3000);
+}
+
+// Поиск и фильтрация
+document.getElementById('search-checks').addEventListener('input', filterChecks);
+document.getElementById('filter-category').addEventListener('change', filterChecks);
+
+function filterChecks() {
+    const searchTerm = document.getElementById('search-checks').value.toLowerCase();
+    const selectedCategory = document.getElementById('filter-category').value;
+    
+    const rows = document.querySelectorAll('#checks-table-body tr');
+    
+    rows.forEach(row => {
+        const checkName = row.querySelector('td:first-child .text-sm.font-medium').textContent.toLowerCase();
+        const checkDescription = row.querySelector('td:first-child .text-sm.text-gray-500').textContent.toLowerCase();
+        const categoryElement = row.querySelector('td:nth-child(2) span');
+        const category = categoryElement ? categoryElement.textContent.trim() : '';
+        
+        const matchesSearch = checkName.includes(searchTerm) || checkDescription.includes(searchTerm);
+        const matchesCategory = !selectedCategory || category === getCategoryDisplayName(selectedCategory);
+        
+        if (matchesSearch && matchesCategory) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+}
+</script>
+{% endblock %} 

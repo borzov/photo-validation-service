@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ru" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% if title %}{{ title }} - {% endif %}Админ-панель валидации фото</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+    
+    <!-- Admin CSS -->
+    <link rel="stylesheet" href="/admin/static/css/admin.css">
+</head>
+<body class="h-full">
+    <div class="min-h-full">
+        <!-- Navigation -->
+        <nav class="bg-white border-b border-gray-200 shadow-sm">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between h-16">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0 flex items-center">
+                            <i data-lucide="shield-check" class="h-8 w-8 text-blue-600"></i>
+                            <span class="ml-2 text-xl font-semibold text-gray-900">Админ-панель валидации фото</span>
+                        </div>
+                        <div class="hidden md:ml-6 md:flex md:space-x-1">
+                            <a href="/admin/" class="nav-link {% if request.url.path == '/admin/' %}active{% endif %}">
+                                <i data-lucide="layout-dashboard" class="h-4 w-4"></i>
+                                Дашборд
+                            </a>
+                            <a href="/admin/system" class="nav-link {% if '/admin/system' in request.url.path %}active{% endif %}">
+                                <i data-lucide="settings" class="h-4 w-4"></i>
+                                Система
+                            </a>
+                            <a href="/admin/validation" class="nav-link {% if '/admin/validation' in request.url.path %}active{% endif %}">
+                                <i data-lucide="check-circle" class="h-4 w-4"></i>
+                                Валидация
+                            </a>
+                            <a href="/admin/operations" class="nav-link {% if '/admin/operations' in request.url.path %}active{% endif %}">
+                                <i data-lucide="activity" class="h-4 w-4"></i>
+                                Операции
+                            </a>
+                            <a href="/admin/checks-discovery" class="nav-link {% if '/admin/checks-discovery' in request.url.path %}active{% endif %}">
+                                <i data-lucide="search" class="h-4 w-4"></i>
+                                Модули
+                            </a>
+                        </div>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <a href="/api/v1/config" class="btn-secondary">
+                            <i data-lucide="code" class="h-4 w-4"></i>
+                            API
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+            {% if request.query_params.get('success') %}
+            <div class="alert alert-success">
+                <i data-lucide="check-circle" class="h-5 w-5 inline mr-2"></i>
+                Настройки сохранены успешно!
+            </div>
+            {% endif %}
+            
+            {% if request.query_params.get('error') or error %}
+            <div class="alert alert-error">
+                <i data-lucide="alert-circle" class="h-5 w-5 inline mr-2"></i>
+                {{ request.query_params.get('error') or error }}
+            </div>
+            {% endif %}
+            
+            <div class="px-4 py-6 sm:px-0">
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+
+    <!-- Admin JavaScript -->
+    <script src="/admin/static/js/admin.js"></script>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html> 

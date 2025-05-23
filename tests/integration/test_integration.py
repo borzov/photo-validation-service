@@ -5,16 +5,16 @@ from PIL import Image
 from io import BytesIO
 
 class TestSystemIntegration:
-    """Интеграционные тесты для всей системы"""
+    """Integration tests for the entire system."""
     
     @pytest.fixture(scope="class")
     def api_url(self):
-        """URL для тестирования API"""
+        """URL for API testing."""
         return "http://localhost:8000"
     
     @pytest.fixture
     def test_image(self):
-        """Создает тестовое изображение"""
+        """Create test image."""
         img = Image.new('RGB', (800, 600), color='red')
         img_bytes = BytesIO()
         img.save(img_bytes, format='JPEG')
@@ -22,7 +22,7 @@ class TestSystemIntegration:
         return img_bytes.getvalue()
     
     def test_health_check(self, api_url):
-        """Тест проверки здоровья системы"""
+        """Test system health check."""
         try:
             response = requests.get(f"{api_url}/health", timeout=10)
             assert response.status_code == 200
@@ -32,15 +32,15 @@ class TestSystemIntegration:
             pytest.skip("API server not available for integration tests")
     
     def test_metrics_endpoints(self, api_url):
-        """Тест эндпоинтов метрик"""
+        """Test metrics endpoints."""
         try:
-            # Базовые метрики
+            # Basic metrics
             response = requests.get(f"{api_url}/metrics", timeout=10)
             assert response.status_code == 200
             data = response.json()
             assert "uptime_seconds" in data
             
-            # Детальные метрики
+            # Detailed metrics
             response = requests.get(f"{api_url}/metrics/detailed", timeout=10)
             assert response.status_code == 200
             data = response.json()
@@ -50,9 +50,9 @@ class TestSystemIntegration:
             pytest.skip("API server not available for integration tests")
     
     def test_full_validation_workflow(self, api_url, test_image):
-        """Тест полного workflow валидации"""
+        """Test complete validation workflow."""
         try:
-            # Шаг 1: Отправляем изображение на валидацию
+            # Step 1: Submit image for validation
             files = {"file": ("test.jpg", test_image, "image/jpeg")}
             response = requests.post(f"{api_url}/api/v1/validate", files=files, timeout=30)
             assert response.status_code == 202
@@ -61,7 +61,7 @@ class TestSystemIntegration:
             assert "requestId" in request_data
             request_id = request_data["requestId"]
             
-            # Шаг 2: Ожидаем завершения обработки
+            # Step 2: Wait for processing completion
             max_attempts = 30
             for attempt in range(max_attempts):
                 response = requests.get(f"{api_url}/api/v1/results/{request_id}", timeout=10)
@@ -71,7 +71,7 @@ class TestSystemIntegration:
                 status = result_data["status"]
                 
                 if status in ["COMPLETED", "FAILED"]:
-                    # Проверяем структуру ответа
+                    # Check response structure
                     assert "overallStatus" in result_data
                     assert "checks" in result_data
                     assert "issues" in result_data
@@ -94,9 +94,9 @@ class TestSystemIntegration:
             pytest.skip("API server not available for integration tests")
     
     def test_invalid_file_rejection(self, api_url):
-        """Тест отклонения невалидных файлов"""
+        """Test invalid file rejection."""
         try:
-            # Тест с текстовым файлом
+            # Test with text file
             fake_content = b"This is not an image"
             files = {"file": ("test.txt", fake_content, "text/plain")}
             response = requests.post(f"{api_url}/api/v1/validate", files=files, timeout=10)
@@ -106,7 +106,7 @@ class TestSystemIntegration:
             pytest.skip("API server not available for integration tests")
     
     def test_nonexistent_result(self, api_url):
-        """Тест запроса несуществующего результата"""
+        """Test request for non-existent result."""
         try:
             response = requests.get(f"{api_url}/api/v1/results/nonexistent-id", timeout=10)
             assert response.status_code == 404
@@ -115,15 +115,15 @@ class TestSystemIntegration:
             pytest.skip("API server not available for integration tests")
 
 class TestWorkerIntegration:
-    """Тесты для интеграции с worker'ами"""
+    """Tests for worker integration."""
     
     def test_worker_task_processing(self):
-        """Тест обработки задач worker'ом"""
-        # Этот тест требует запущенного worker'а
-        # В реальной среде здесь была бы проверка обработки задач
+        """Test worker task processing."""
+        # This test requires running worker
+        # In real environment there would be worker task processing check
         pytest.skip("Worker integration tests require running worker process")
     
     def test_concurrent_processing(self):
-        """Тест параллельной обработки нескольких задач"""
-        # Тест для проверки что система может обрабатывать несколько запросов одновременно
+        """Test concurrent processing of multiple tasks."""
+        # This test requires full environment
         pytest.skip("Concurrent processing tests require full environment") 

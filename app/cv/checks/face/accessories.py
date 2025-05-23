@@ -15,8 +15,8 @@ class AccessoriesCheck(BaseCheck):
     Проверка наличия аксессуаров на лице (очки, головной убор, руки у лица).
     """
     check_id = "accessories"
-    name = "Accessories Check"
-    description = "Checks for the presence of accessories on the face (glasses, headwear, hands)"
+    name = "Проверка аксессуаров"
+    description = "Проверяет наличие аксессуаров на лице (очки, головной убор, руки)"
     
     default_config = {
         "glasses_detection_enabled": False,

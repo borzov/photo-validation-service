@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+    <div class="flex justify-between items-center">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900 flex items-center">
+                <i data-lucide="check-circle" class="h-8 w-8 mr-3 text-blue-600"></i>
+                Настройки валидации изображений
+            </h1>
+            <p class="text-gray-600 mt-2">Конфигурация модулей проверки изображений</p>
+        </div>
+        <div class="flex space-x-3">
+            <button onclick="resetToDefaults()" class="btn-secondary">
+                <i data-lucide="rotate-ccw" class="h-4 w-4"></i>
+                Сброс
+            </button>
+            <button onclick="exportConfig()" class="btn-secondary">
+                <i data-lucide="download" class="h-4 w-4"></i>
+                Экспорт
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Loading indicator -->
+<div id="loading-indicator" class="text-center py-8">
+    <div class="inline-flex items-center">
+        <div class="spinner"></div>
+        <span class="ml-3 text-gray-600">Загрузка конфигурации...</span>
+    </div>
+</div>
+
+<!-- Dynamic form container -->
+<div id="validation-form-container" style="display: none;">
+    <form id="validationForm" class="space-y-8">
+        <!-- Global Settings -->
+        <div class="card p-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                <i data-lucide="settings" class="h-5 w-5 mr-2 text-blue-600"></i>
+                Глобальные настройки системы проверок
+            </h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Останавливать при первой ошибке
+                    </label>
+                    <label class="switch">
+                        <input type="checkbox" id="stop_on_failure" name="stop_on_failure">
+                        <span class="slider"></span>
+                    </label>
+                    <p class="text-sm text-gray-500 mt-1">Прекращать проверки при первой неудаче</p>
+                </div>
+                
+                <div>
+                    <label for="max_check_time" class="block text-sm font-medium text-gray-700 mb-2">
+                        Максимальное время на проверку (сек)
+                    </label>
+                    <input type="number" id="max_check_time" name="max_check_time" 
+                           value="5.0" min="1" max="30" step="0.5" class="form-input w-full">
+                    <p class="text-sm text-gray-500 mt-1">Таймаут для каждого модуля</p>
+                </div>
+                
+                <div>
+                    <label for="max_concurrent" class="block text-sm font-medium text-gray-700 mb-2">
+                        Параллельные операции
+                    </label>
+                    <input type="number" id="max_concurrent" name="max_concurrent" 
+                           value="5" min="1" max="20" class="form-input w-full">
+                    <p class="text-sm text-gray-500 mt-1">Количество одновременных обработок</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Image Requirements -->
+        <div class="card p-6">
+            <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                <i data-lucide="image" class="h-5 w-5 mr-2 text-purple-600"></i>
+                Требования к изображению
+            </h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                    <label for="min_width" class="block text-sm font-medium text-gray-700 mb-2">
+                        Минимальная ширина (px)
+                    </label>
+                    <input type="number" id="min_width" name="min_width" 
+                           value="400" min="100" max="5000" class="form-input w-full">
+                    <p class="text-sm text-gray-500 mt-1">Минимальная ширина изображения</p>
+                </div>
+                
+                <div>
+                    <label for="min_height" class="block text-sm font-medium text-gray-700 mb-2">
+                        Минимальная высота (px)
+                    </label>
+                    <input type="number" id="min_height" name="min_height" 
+                           value="500" min="100" max="5000" class="form-input w-full">
+                    <p class="text-sm text-gray-500 mt-1">Минимальная высота изображения</p>
+                </div>
+                
+                <div>
+                    <label for="max_file_size" class="block text-sm font-medium text-gray-700 mb-2">
+                        Максимальный размер файла (МБ)
+                    </label>
+                    <input type="number" id="max_file_size" name="max_file_size" 
+                           value="5.0" min="0.1" max="50" step="0.1" class="form-input w-full">
+                    <p class="text-sm text-gray-500 mt-1">Максимальный размер загружаемого файла</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Dynamic module sections will be inserted here -->
+        <div id="modules-container">
+            <!-- Sections will be generated dynamically -->
+        </div>
+
+        <!-- Save Button -->
+        <div class="flex justify-end space-x-4 pt-6 border-t border-gray-200">
+            <button type="button" onclick="previewChanges()" class="btn-secondary">
+                <i data-lucide="eye" class="h-4 w-4"></i>
+                Предпросмотр
+            </button>
+            <button type="button" onclick="validateConfiguration()" class="btn-secondary">
+                <i data-lucide="check" class="h-4 w-4"></i>
+                Проверить
+            </button>
+            <button type="submit" class="btn-primary">
+                <i data-lucide="save" class="h-4 w-4"></i>
+                Сохранить настройки
+            </button>
+        </div>
+    </form>
+</div>
+
+<!-- Preview Modal -->
+<div id="previewModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50">
+    <div class="flex items-center justify-center min-h-screen p-4">
+        <div class="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-auto">
+            <div class="p-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Предпросмотр конфигурации</h3>
+                    <button onclick="closePreview()" class="text-gray-400 hover:text-gray-600">
+                        <i data-lucide="x" class="h-6 w-6"></i>
+                    </button>
+                </div>
+                <pre id="previewContent" class="bg-gray-100 p-4 rounded text-sm overflow-auto"></pre>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="/admin/static/js/validation.js"></script>
+{% endblock %} 

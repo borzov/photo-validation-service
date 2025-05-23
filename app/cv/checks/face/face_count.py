@@ -1,99 +1,148 @@
 """
-Модуль для проверки количества лиц на изображении.
+Module for counting faces in image.
 """
 import cv2
 import numpy as np
 from typing import Dict, Any, List
-from app.cv.checks.base import BaseCheck
-from app.core.logging import get_logger
+from app.cv.checks.registry import BaseCheck, CheckMetadata, CheckParameter
 from app.cv.checks.face.detector import detect_faces
+from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
 class FaceCountCheck(BaseCheck):
     """
-    Проверка количества лиц на изображении.
+    Check number of faces in image.
     """
-    check_id = "faceCount"
-    name = "Face Count Check"
-    description = "Checks if the image contains the required number of faces"
     
-    default_config = {
-        "min_count": 1,
-        "max_count": 1,
-        "face_confidence_threshold": 0.4
-    }
-
+    @classmethod
+    def get_metadata(cls) -> CheckMetadata:
+        """Return metadata for this check module."""
+        return CheckMetadata(
+            name="face_count",
+            display_name="Face Count",
+            description="Checks that the image contains the required number of faces",
+            category="face_detection",
+            version="1.0.0",
+            author="Photo Validation Team",
+            parameters=[
+                CheckParameter(
+                    name="min_count",
+                    type="int",
+                    default=1,
+                    description="Minimum number of faces",
+                    min_value=0,
+                    max_value=10,
+                    required=True
+                ),
+                CheckParameter(
+                    name="max_count",
+                    type="int",
+                    default=1,
+                    description="Maximum number of faces",
+                    min_value=1,
+                    max_value=10,
+                    required=True
+                ),
+                CheckParameter(
+                    name="face_confidence_threshold",
+                    type="float",
+                    default=0.4,
+                    description="Confidence threshold for face detection",
+                    min_value=0.1,
+                    max_value=0.9,
+                    required=False
+                )
+            ],
+            dependencies=["opencv-python"],
+            enabled_by_default=True
+        )
+    
+    def __init__(self, **parameters):
+        """Initialize with parameters."""
+        self.parameters = parameters
+        metadata = self.get_metadata()
+        
+        # Set default values
+        for param in metadata.parameters:
+            if param.name not in self.parameters:
+                self.parameters[param.name] = param.default
+        
+        # Validate parameters
+        if not self.validate_parameters(self.parameters):
+            raise ValueError("Invalid parameters provided")
+    
     def run(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
+        """Method for compatibility with old runner."""
+        return self.check(image, context)
+    
+    def check(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        Выполняет проверку количества лиц на изображении.
+        Perform face count check on the image.
         
         Args:
-            image: Изображение для проверки
-            context: Контекст с результатами предыдущих проверок
+            image: Image to check
+            context: Context with previous check results
             
         Returns:
-            Результаты проверки
+            Check results
         """
         try:
-            # Проверяем, есть ли кэшированные результаты детекции лиц
-            if context and 'cached_faces' in context:
-                faces = context['cached_faces']
-                logger.debug("Using cached face detection results")
-            else:
-                # Обнаружение лиц
-                faces = detect_faces(image)
-                logger.debug("Performed new face detection")
-            
-            # Фильтрация лиц по уровню уверенности
-            confidence_threshold = self.config["face_confidence_threshold"]
-            faces = [face for face in faces if face.get("confidence", 0) > confidence_threshold]
-            
-            # Количество обнаруженных лиц
+            # Use face detector
+            faces = detect_faces(image, confidence_threshold=self.parameters["face_confidence_threshold"])
             face_count = len(faces)
             
-            # Проверка соответствия требованиям
-            min_count = self.config["min_count"]
-            max_count = self.config["max_count"]
+            min_count = self.parameters["min_count"]
+            max_count = self.parameters["max_count"]
             
-            if face_count < min_count:
-                status = "FAILED"
-                reason = f"Too few faces detected: {face_count} (min: {min_count})"
-            elif face_count > max_count:
-                status = "FAILED"
-                reason = f"Too many faces detected: {face_count} (max: {max_count})"
-            else:
-                status = "PASSED"
-                reason = None
+            # Form details
+            face_details = []
+            for i, face in enumerate(faces):
+                bbox = face.get("bbox", [0, 0, 0, 0])
+                confidence = face.get("confidence", 0.0)
+                face_details.append({
+                    "id": i + 1,
+                    "bbox": bbox,
+                    "confidence": float(confidence),
+                    "area": bbox[2] * bbox[3] if len(bbox) >= 4 else 0
+                })
             
-            # Сохраняем информацию о лицах в контексте для использования в других проверках
-            if context is not None:
-                # Если есть хотя бы одно лицо, сохраняем первое (или единственное) лицо
-                if faces:
-                    context["face"] = faces[0]
-                context["faces"] = faces
-            
-            # Формируем детали для ответа
             details = {
-                "count": face_count,
-                "required_min": min_count,
-                "required_max": max_count,
-                "face_confidences": [round(face.get("confidence", 0), 2) for face in faces],
-                "used_cache": 'cached_faces' in (context or {})
+                "face_count": face_count,
+                "min_count_required": min_count,
+                "max_count_allowed": max_count,
+                "faces": face_details,
+                "confidence_threshold": self.parameters["face_confidence_threshold"],
+                "parameters_used": self.parameters
             }
             
-            logger.info(f"Face count check: {face_count} faces detected, status: {status}")
-            
-            return {
-                "status": status,
-                "reason": reason,
-                "details": details
-            }
-            
+            # Determine result
+            if face_count < min_count:
+                return {
+                    "check": "face_count",
+                    "status": "FAILED",
+                    "reason": f"Not enough faces: found {face_count}, required minimum {min_count}",
+                    "details": details
+                }
+            elif face_count > max_count:
+                return {
+                    "check": "face_count",
+                    "status": "FAILED",
+                    "reason": f"Too many faces: found {face_count}, maximum {max_count}",
+                    "details": details
+                }
+            else:
+                return {
+                    "check": "face_count",
+                    "status": "PASSED",
+                    "details": details
+                }
+                
         except Exception as e:
-            logger.error(f"Error during face count check: {e}")
+            logger.error(f"Error in face count check: {e}")
             return {
-                "status": "FAILED",
-                "reason": f"Face detection error: {str(e)}",
-                "details": {"error": str(e)}
+                "check": "face_count",
+                "status": "NEEDS_REVIEW",
+                "reason": f"Error during face count check: {str(e)}",
+                "details": {"error": str(e), "parameters_used": self.parameters}
             }

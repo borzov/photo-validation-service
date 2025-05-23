@@ -76,6 +76,20 @@ class PerformanceMonitor:
         if current_memory > self.metrics.peak_memory_usage:
             self.metrics.peak_memory_usage = current_memory
             
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Возвращает статистику кэша"""
+        total_cache_requests = self.metrics.cache_hits + self.metrics.cache_misses
+        hit_rate = 0.0
+        if total_cache_requests > 0:
+            hit_rate = self.metrics.cache_hits / total_cache_requests
+            
+        return {
+            "cache_hits": self.metrics.cache_hits,
+            "cache_misses": self.metrics.cache_misses,
+            "total_requests": total_cache_requests,
+            "hit_rate": hit_rate
+        }
+        
     def get_metrics(self) -> Dict[str, Any]:
         """Возвращает текущие метрики"""
         uptime = time.time() - self._start_time

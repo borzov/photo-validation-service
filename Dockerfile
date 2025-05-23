@@ -1,61 +1,54 @@
-# Многоэтапная сборка для оптимизации размера образа
-FROM python:3.9-slim as builder
+# Build stage
+FROM python:3.10-slim as builder
 
-# Установка системных зависимостей для сборки
+# Install build dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     libgl1-mesa-dev \
-    libglib2.0-dev \
-    libpq-dev \
+    libglib2.0-0 \
+    libgomp1 \
+    gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Создание виртуального окружения
+# Create virtual environment
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Копирование и установка зависимостей
+# Copy and install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
-# Финальный образ
-FROM python:3.9-slim
+# Production stage
+FROM python:3.10-slim
 
-WORKDIR /app
-
-# Установка только runtime зависимостей
+# Install runtime dependencies only
 RUN apt-get update && apt-get install -y \
     libgl1-mesa-glx \
     libglib2.0-0 \
+    libgomp1 \
     postgresql-client \
     libmagic1 \
-    curl \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+    && rm -rf /var/lib/apt/lists/*
 
-# Копирование виртуального окружения из builder
+# Copy virtual environment from builder stage
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
-# Создание пользователя для безопасности
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+# Create app directory and user
+WORKDIR /app
+RUN useradd --create-home --shell /bin/bash app && chown -R app:app /app
+USER app
 
-# Копирование файлов проекта
-COPY app /app/app
-COPY alembic /app/alembic
-COPY alembic.ini /app/
-COPY models /app/models
+# Copy application code
+COPY --chown=app:app . .
 
-# Создание директорий и установка прав
-RUN mkdir -p /app/local_storage && \
-    chown -R appuser:appuser /app
+# Create necessary directories
+RUN mkdir -p local_storage/debug logs
 
-# Переключение на непривилегированного пользователя
-USER appuser
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
 
-# Проверка здоровья контейнера
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-# Запуск приложения
+# Default command
 CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
