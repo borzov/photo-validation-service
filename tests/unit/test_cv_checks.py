@@ -56,7 +56,7 @@ class TestColorModeCheck:
         check = ColorModeCheck()
         result = check.run(grayscale_image)
         assert result["status"] == "FAILED"
-        assert "grayscale" in result["reason"].lower()
+        assert "черно-белое" in result["reason"].lower()
 
 class TestBlurrinessCheck:
     """Tests for blurriness check."""
@@ -74,7 +74,7 @@ class TestBlurrinessCheck:
         context = {"face": {"bbox": [100, 100, 200, 200]}}
         result = check.run(blurry_image, context)
         assert result["status"] == "FAILED"
-        assert "blur" in result["reason"].lower()
+        assert "размыто" in result["reason"].lower()
     
     def test_no_face_context_skipped(self, sharp_image):
         """Test check skipped without face context."""

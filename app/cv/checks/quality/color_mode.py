@@ -1,35 +1,36 @@
 """
-Module for checking image color mode.
+Модуль для проверки цветового режима изображения.
 """
 import cv2
 import numpy as np
 from typing import Dict, Any
 from app.cv.checks.registry import BaseCheck, CheckMetadata, CheckParameter
 from app.core.logging import get_logger
+from app.cv.checks.mixins import StandardCheckMixin
 
 logger = get_logger(__name__)
 
-class ColorModeCheck(BaseCheck):
+class ColorModeCheck(StandardCheckMixin, BaseCheck):
     """
-    Check whether image is color or grayscale.
+    Проверка цветности изображения (цветное или черно-белое).
     """
     
     @classmethod
     def get_metadata(cls) -> CheckMetadata:
-        """Return metadata for this check module."""
+        """Возвращает метаданные для этого модуля проверки."""
         return CheckMetadata(
             name="color_mode",
-            display_name="Color Mode Check",
-            description="Checks whether image is color or grayscale",
+            display_name="Проверка цветового режима",
+            description="Проверяет, является ли изображение цветным или черно-белым",
             category="image_quality",
             version="1.0.0",
-            author="Photo Validation Team",
+            author="Maxim Borzov",
             parameters=[
                 CheckParameter(
                     name="grayscale_saturation_threshold",
                     type="int",
                     default=15,
-                    description="Saturation threshold for determining grayscale image",
+                    description="Порог насыщенности для определения черно-белого изображения",
                     min_value=5,
                     max_value=50,
                     required=True
@@ -38,7 +39,7 @@ class ColorModeCheck(BaseCheck):
                     name="require_color",
                     type="bool",
                     default=True,
-                    description="Whether to require color image (if False, any is accepted)",
+                    description="Требовать цветное изображение (если False, любое принимается)",
                     required=False
                 )
             ],
@@ -46,49 +47,31 @@ class ColorModeCheck(BaseCheck):
             enabled_by_default=True
         )
     
-    def __init__(self, **parameters):
-        """Initialize with parameters."""
-        self.parameters = parameters
-        metadata = self.get_metadata()
-        
-        # Set default values
-        for param in metadata.parameters:
-            if param.name not in self.parameters:
-                self.parameters[param.name] = param.default
-        
-        # Validate parameters
-        if not self.validate_parameters(self.parameters):
-            raise ValueError("Invalid parameters provided")
-    
-    def run(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Method for compatibility with old runner."""
-        return self.check(image, context)
-    
     def check(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        Perform color mode check on the image.
+        Выполняет проверку цветового режима изображения.
         
         Args:
-            image: Image to check
-            context: Context with previous check results
+            image: Изображение для проверки
+            context: Контекст с результатами предыдущих проверок
             
         Returns:
-            Check results
+            Результаты проверки
         """
         try:
-            # Convert to HSV for saturation analysis
+            # Конвертируем в HSV для анализа насыщенности
             hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
             
-            # Extract saturation channel (S)
+            # Извлекаем канал насыщенности (S)
             saturation = hsv[:, :, 1]
             
-            # Calculate mean saturation
+            # Вычисляем среднюю насыщенность
             mean_saturation = np.mean(saturation)
             
             threshold = self.parameters["grayscale_saturation_threshold"]
             require_color = self.parameters["require_color"]
             
-            # Determine if image is color
+            # Определяем, является ли изображение цветным
             is_color = mean_saturation > threshold
             
             details = {
@@ -98,12 +81,12 @@ class ColorModeCheck(BaseCheck):
                 "parameters_used": self.parameters
             }
             
-            # Check requirements compliance
+            # Проверяем соответствие требованиям
             if require_color and not is_color:
                 return {
                     "check": "color_mode",
                     "status": "FAILED",
-                    "reason": f"Image is grayscale (saturation: {mean_saturation:.1f} <= {threshold})",
+                    "reason": f"Изображение черно-белое (насыщенность: {mean_saturation:.1f} <= {threshold})",
                     "details": details
                 }
             elif not require_color or is_color:
@@ -120,10 +103,10 @@ class ColorModeCheck(BaseCheck):
                 }
                 
         except Exception as e:
-            logger.error(f"Error checking color mode: {e}")
+            logger.error(f"Ошибка при проверке цветового режима: {e}")
             return {
                 "check": "color_mode",
                 "status": "NEEDS_REVIEW",
-                "reason": f"Error during color mode check: {str(e)}",
+                "reason": f"Ошибка при проверке цветового режима: {str(e)}",
                 "details": {"error": str(e), "parameters_used": self.parameters}
             }

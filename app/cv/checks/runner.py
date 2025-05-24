@@ -59,9 +59,6 @@ class CheckRunner:
         """
         self.config = config or check_config
         
-        # Проверяем наличие всех проверок в конфигурации
-        self.config.register_missing_checks()
-        
         # Получаем системные настройки
         self.system_config = self.config.get_system_config()
         self.stop_on_failure = self.system_config.get("stop_on_failure", False)
@@ -97,7 +94,7 @@ class CheckRunner:
         # Проверки, которые можно выполнять параллельно (не зависят от результатов других)
         parallel_checks = {
             'fileFormat', 'fileSize', 'dimensions', 'colorMode', 
-            'blurriness', 'redEye', 'lighting', 'realPhoto'
+            'lighting', 'realPhoto', 'extraneous_objects'
         }
         return check_id in parallel_checks
     
@@ -139,15 +136,53 @@ class CheckRunner:
             else:
                 sequential_checks.append(check_id)
         
-        # Сначала запускаем параллельные проверки
-        if parallel_checks:
+        # Сначала запускаем последовательные проверки (включая face_count, которая устанавливает контекст)
+        for check_id in sequential_checks:
+            check_class = check_registry.get_check(check_id)
+            if not check_class:
+                logger.warning(f"Check {check_id} not found in registry. Skipping.")
+                continue
+            
+            check_params = self.config.get_check_params(check_id)
+            check_instance = check_class(**check_params)
+            
+            try:
+                result = await self._run_check_with_timeout(check_instance, check_id, image, context)
+                check_results.append(result)
+                context[check_id] = result
+                
+                if result.get("status") == "FAILED":
+                    reason = result.get("reason")
+                    if reason:
+                        issues.append(reason)
+                    
+                    if self.stop_on_failure:
+                        logger.info(f"Stopping checks due to failure in {check_id}")
+                        break
+                        
+            except Exception as e:
+                logger.error(f"Error running check {check_id}: {e}", exc_info=True)
+                check_results.append({
+                    "check": check_id,
+                    "status": "FAILED",
+                    "reason": f"Check error: {str(e)}",
+                    "details": None
+                })
+                issues.append(f"Check {check_id} error: {str(e)}")
+                
+                if self.stop_on_failure:
+                    break
+        
+        # Затем запускаем параллельные проверки (если не остановились на ошибке)
+        if parallel_checks and not (self.stop_on_failure and issues):
             parallel_tasks = []
             for check_id in parallel_checks:
                 check_class = check_registry.get_check(check_id)
                 if check_class:
                     check_params = self.config.get_check_params(check_id)
-                    check_instance = check_class(check_params)
-                    task = self._run_check_with_timeout(check_instance, check_id, image, context.copy())
+                    check_instance = check_class(**check_params)
+                    # Теперь передаем актуальный контекст, а не копию
+                    task = self._run_check_with_timeout(check_instance, check_id, image, context)
                     parallel_tasks.append(task)
             
             # Ждем завершения всех параллельных проверок
@@ -168,44 +203,6 @@ class CheckRunner:
                     
                     if self.stop_on_failure:
                         logger.info(f"Stopping checks due to failure in {result['check']}")
-                        break
-        
-        # Если не остановились на ошибке, запускаем последовательные проверки
-        if not (self.stop_on_failure and issues):
-            for check_id in sequential_checks:
-                check_class = check_registry.get_check(check_id)
-                if not check_class:
-                    logger.warning(f"Check {check_id} not found in registry. Skipping.")
-                    continue
-                
-                check_params = self.config.get_check_params(check_id)
-                check_instance = check_class(check_params)
-                
-                try:
-                    result = await self._run_check_with_timeout(check_instance, check_id, image, context)
-                    check_results.append(result)
-                    context[check_id] = result
-                    
-                    if result.get("status") == "FAILED":
-                        reason = result.get("reason")
-                        if reason:
-                            issues.append(reason)
-                        
-                        if self.stop_on_failure:
-                            logger.info(f"Stopping checks due to failure in {check_id}")
-                            break
-                            
-                except Exception as e:
-                    logger.error(f"Error running check {check_id}: {e}", exc_info=True)
-                    check_results.append({
-                        "check": check_id,
-                        "status": "FAILED",
-                        "reason": f"Check error: {str(e)}",
-                        "details": None
-                    })
-                    issues.append(f"Check {check_id} error: {str(e)}")
-                    
-                    if self.stop_on_failure:
                         break
         
         # Определяем общий статус проверки
@@ -288,12 +285,29 @@ class CheckRunner:
     def _determine_overall_status(self, check_results: List[Dict[str, Any]]) -> str:
         """
         Определяет общий статус проверки на основе результатов отдельных проверок.
+        
+        Логика определения:
+        - Если есть проверки со статусом NEEDS_REVIEW -> MANUAL_REVIEW
+        - Если нет провалов -> APPROVED  
+        - Если провалов меньше половины -> MANUAL_REVIEW
+        - Если провалов больше половины -> REJECTED
+        
+        Возможные значения:
+        - APPROVED: все проверки прошли успешно
+        - REJECTED: критическое количество проверок провалено
+        - MANUAL_REVIEW: требуется ручная проверка (из-за NEEDS_REVIEW или умеренных провалов)
         """
         failed_count = sum(1 for result in check_results if result.get("status") == "FAILED")
+        needs_review_count = sum(1 for result in check_results if result.get("status") == "NEEDS_REVIEW")
         
+        # Если есть хотя бы одна проверка требующая ручной проверки - возвращаем MANUAL_REVIEW
+        if needs_review_count > 0:
+            return "MANUAL_REVIEW"
+        
+        # Если нет проверок требующих ручной проверки, оцениваем провалы
         if failed_count == 0:
             return "APPROVED"
-        elif failed_count < len(check_results) // 2:
+        elif failed_count * 2 < len(check_results):  # Строго меньше 50%
             return "MANUAL_REVIEW" 
         else:
             return "REJECTED"

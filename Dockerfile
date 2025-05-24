@@ -1,3 +1,6 @@
+# Photo Validation Service Dockerfile
+# Author: Maxim Borzov
+
 # Build stage
 FROM python:3.10-slim as builder
 

@@ -1,36 +1,37 @@
 """
-Image blurriness detection check.
+Проверка размытости изображения.
 """
 import cv2
 import numpy as np
 from typing import Dict, Any
 import math
 from app.cv.checks.registry import BaseCheck, CheckMetadata, CheckParameter
+from app.cv.checks.mixins import StandardCheckMixin
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-class BlurrinessCheck(BaseCheck):
+class BlurrinessCheck(StandardCheckMixin, BaseCheck):
     """
-    Check for image blurriness in face region using Laplacian variance.
+    Проверка размытости изображения в области лица с использованием дисперсии Лапласиана.
     """
     
     @classmethod
     def get_metadata(cls) -> CheckMetadata:
-        """Return metadata for this check module."""
+        """Возвращает метаданные для этого модуля проверки."""
         return CheckMetadata(
             name="blurriness",
-            display_name="Blurriness Check",
-            description="Checks image blurriness in face region using Laplacian variance",
+            display_name="Проверка размытости",
+            description="Проверяет размытость изображения в области лица с использованием дисперсии Лапласиана",
             category="image_quality",
             version="1.0.0",
-            author="Photo Validation Team",
+            author="Maxim Borzov",
             parameters=[
                 CheckParameter(
                     name="laplacian_threshold",
                     type="int",
                     default=40,
-                    description="Minimum Laplacian variance value to consider image sharp",
+                    description="Минимальное значение дисперсии Лапласиана для считания изображения четким",
                     min_value=10,
                     max_value=200,
                     required=True
@@ -40,23 +41,7 @@ class BlurrinessCheck(BaseCheck):
             enabled_by_default=True
         )
     
-    def __init__(self, **parameters):
-        """Initialize with parameters."""
-        self.parameters = parameters
-        metadata = self.get_metadata()
-        
-        # Set default values
-        for param in metadata.parameters:
-            if param.name not in self.parameters:
-                self.parameters[param.name] = param.default
-        
-        # Validate parameters
-        if not self.validate_parameters(self.parameters):
-            raise ValueError("Invalid parameters provided")
-    
-    def run(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Method for compatibility with old runner."""
-        return self.check(image, context)
+    # Инициализация и run() метод унаследованы из StandardCheckMixin
     
     def check(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
@@ -69,25 +54,21 @@ class BlurrinessCheck(BaseCheck):
         Returns:
             Check results
         """
-        if not context or "face" not in context or "bbox" not in context["face"]:
-            logger.warning("Face region not found in context for blurriness check")
-            return {
-                "check": "blurriness",
-                "status": "SKIPPED",
-                "reason": "No face region available",
-                "details": {"laplacian_variance": None}
-            }
+        # Проверяем контекст лица с bbox
+        context_error = self._validate_face_bbox_context(context, "blurriness")
+        if context_error:
+            return context_error
 
         # Get face region from context
         x, y, width, height = context["face"]["bbox"]
         face_region = image[y:y+height, x:x+width]
 
         if face_region.size == 0:
-            logger.warning("Face region is empty, skipping blurriness check")
+            logger.warning("Область лица пуста, пропускаем проверку размытости")
             return {
                 "check": "blurriness",
                 "status": "NEEDS_REVIEW",
-                "reason": "Empty face region",
+                "reason": "Пустая область лица",
                 "details": {"laplacian_variance": None}
             }
             
@@ -101,7 +82,7 @@ class BlurrinessCheck(BaseCheck):
             # Check for NaN or Inf
             if laplacian_var_np is None or math.isnan(laplacian_var_np):
                 laplacian_var = 0.0
-                logger.warning("Laplacian variance resulted in NaN, treating as 0.0 for blur check")
+                logger.warning("Дисперсия Лапласиана равна NaN, принимаем за 0.0 для проверки размытости")
             else:
                 laplacian_var = float(laplacian_var_np)
                 
@@ -115,25 +96,19 @@ class BlurrinessCheck(BaseCheck):
             
             # Check blurriness
             if laplacian_var < threshold:
-                logger.info(f"Face seems blurry: laplacian_var={laplacian_var:.2f}, threshold={threshold}")
+                logger.info(f"Лицо размыто: laplacian_var={laplacian_var:.2f}, threshold={threshold}")
                 return {
                     "check": "blurriness",
                     "status": "FAILED",
-                    "reason": f"Image is blurry (Laplacian value: {laplacian_var:.2f} < {threshold})",
+                    "reason": f"Изображение размыто (значение Лапласиана: {laplacian_var:.2f} < {threshold})",
                     "details": details
                 }
             else:
-                logger.info(f"Face seems sharp: laplacian_var={laplacian_var:.2f}, threshold={threshold}")
+                logger.info(f"Лицо четкое: laplacian_var={laplacian_var:.2f}, threshold={threshold}")
                 return {
                     "check": "blurriness",
                     "status": "PASSED",
                     "details": details
                 }
         except Exception as e:
-            logger.error(f"Error checking blurriness: {e}")
-            return {
-                "check": "blurriness",
-                "status": "NEEDS_REVIEW",
-                "reason": f"Error during blurriness check: {str(e)}",
-                "details": {"error": str(e), "parameters_used": self.parameters}
-            }
+            return self._create_error_result("blurriness", e)

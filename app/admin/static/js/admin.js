@@ -1,73 +1,114 @@
-// Основные функции административной панели
+/**
+ * Основные функции административной панели
+ * Использует Framework.js для управления состоянием и компонентами
+ */
 
-// Инициализация после загрузки DOM
-document.addEventListener('DOMContentLoaded', function() {
-    // Инициализировать иконки Lucide
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
+class AdminManager extends Framework.Component {
+    constructor() {
+        super(document.body, {
+            initialState: {
+                autoSaveEnabled: true,
+                autoSaveTimeout: null
+            }
+        });
+        
+        this.init();
     }
-    
-    // Добавить обработчики для авто-сохранения
-    initAutoSave();
-    
-    // Инициализировать переключатели форм
-    initFormToggles();
-});
+
+    init() {
+        console.log('AdminManager: Инициализация...');
+        this.bindEvents();
+        this.initAutoSave();
+        this.initFormToggles();
+    }
+
+    bindEvents() {
+        // Инициализировать иконки Lucide при загрузке
+        if (typeof lucide !== 'undefined') {
+            lucide.createIcons();
+        }
+    }
+
+    // Функциональность авто-сохранения
+    scheduleAutoSave() {
+        const state = this.getState();
+        if (!state.autoSaveEnabled) return;
+        
+        if (state.autoSaveTimeout) {
+            clearTimeout(state.autoSaveTimeout);
+        }
+        
+        const timeoutId = setTimeout(() => {
+            console.log('Авто-сохранение конфигурации...');
+            // Здесь можно добавить логику авто-сохранения
+        }, 2000);
+        
+        this.setState({ autoSaveTimeout: timeoutId });
+    }
+
+    initAutoSave() {
+        const formInputs = document.querySelectorAll('input, select, textarea');
+        formInputs.forEach(input => {
+            input.addEventListener('change', () => this.scheduleAutoSave());
+        });
+    }
+
+    // Инициализация переключателей
+    initFormToggles() {
+        const enabledSwitches = document.querySelectorAll('input[type="checkbox"][id$="_enabled"]');
+        enabledSwitches.forEach(switch_ => {
+            const settingsId = switch_.id.replace('_enabled', '_settings');
+            switch_.addEventListener('change', function() {
+                const settingsElement = document.getElementById(settingsId);
+                if (settingsElement) {
+                    Framework.DOMUtils.toggle(settingsElement);
+                }
+            });
+        });
+    }
+
+    // Валидация форм
+    validateForm(formId) {
+        const form = document.getElementById(formId);
+        if (!form) return true;
+        
+        const inputs = form.querySelectorAll('input[required]');
+        let isValid = true;
+        
+        inputs.forEach(input => {
+            if (!input.value.trim()) {
+                Framework.DOMUtils.addClass(input, 'border-red-500');
+                isValid = false;
+            } else {
+                Framework.DOMUtils.removeClass(input, 'border-red-500');
+            }
+        });
+        
+        return isValid;
+    }
+
+    // Переключение секций
+    toggleSection(sectionId) {
+        const section = document.getElementById(sectionId);
+        if (section) {
+            Framework.DOMUtils.toggle(section);
+        }
+    }
+}
 
 // Утилиты для UI взаимодействий
 function toggleSection(sectionId) {
-    const section = document.getElementById(sectionId);
-    if (section) {
-        section.classList.toggle('hidden');
+    if (adminManager) {
+        adminManager.toggleSection(sectionId);
     }
 }
 
 // Валидация форм
 function validateForm(formId) {
-    const form = document.getElementById(formId);
-    if (!form) return true;
-    
-    const inputs = form.querySelectorAll('input[required]');
-    let isValid = true;
-    
-    inputs.forEach(input => {
-        if (!input.value.trim()) {
-            input.classList.add('border-red-500');
-            isValid = false;
-        } else {
-            input.classList.remove('border-red-500');
-        }
-    });
-    
-    return isValid;
-}
-
-// Функциональность авто-сохранения
-let autoSaveTimeout;
-function scheduleAutoSave() {
-    clearTimeout(autoSaveTimeout);
-    autoSaveTimeout = setTimeout(() => {
-        console.log('Авто-сохранение конфигурации...');
-        // Здесь можно добавить логику авто-сохранения
-    }, 2000);
-}
-
-function initAutoSave() {
-    const formInputs = document.querySelectorAll('input, select, textarea');
-    formInputs.forEach(input => {
-        input.addEventListener('change', scheduleAutoSave);
-    });
-}
-
-// Инициализация переключателей
-function initFormToggles() {
-    const enabledSwitches = document.querySelectorAll('input[type="checkbox"][id$="_enabled"]');
-    enabledSwitches.forEach(switch_ => {
-        const settingsId = switch_.id.replace('_enabled', '_settings');
-        switch_.addEventListener('change', function() {
-            toggleSection(settingsId);
-        });
-    });
+    if (adminManager) {
+        return adminManager.validateForm(formId);
+    }
+    return true;
 }
 
 // Предпросмотр изменений
@@ -87,7 +128,7 @@ function previewChanges() {
     
     if (previewContent && previewModal) {
         previewContent.textContent = JSON.stringify(config, null, 2);
-        previewModal.classList.remove('hidden');
+        Framework.DOMUtils.removeClass(previewModal, 'hidden');
     }
 }
 
@@ -95,24 +136,20 @@ function previewChanges() {
 function closePreview() {
     const previewModal = document.getElementById('previewModal');
     if (previewModal) {
-        previewModal.classList.add('hidden');
+        Framework.DOMUtils.addClass(previewModal, 'hidden');
     }
 }
 
 // Сброс к настройкам по умолчанию
 function resetToDefaults() {
     if (confirm('Вы уверены? Все настройки будут сброшены к значениям по умолчанию!')) {
-        fetch('/admin/reset', { method: 'POST' })
-            .then(response => {
-                if (response.ok) {
-                    window.location.reload();
-                } else {
-                    alert('Ошибка при сбросе настроек');
-                }
+        Framework.HttpClient.post('/admin/reset')
+            .then(() => {
+                window.location.reload();
             })
             .catch(error => {
                 console.error('Ошибка:', error);
-                alert('Ошибка при сбросе настроек');
+                Framework.NotificationSystem.show('Ошибка при сбросе настроек', 'error');
             });
     }
 }
@@ -128,36 +165,24 @@ function validateConfiguration() {
     if (!form) return;
     
     if (validateForm('validationForm')) {
-        alert('Конфигурация валидна!');
+        Framework.NotificationSystem.show('Конфигурация валидна!', 'success');
     } else {
-        alert('Найдены ошибки в конфигурации. Проверьте обязательные поля.');
-    }
-}
-
-// Функции для работы с уведомлениями
-function showNotification(message, type = 'info') {
-    const notification = document.createElement('div');
-    notification.className = `alert alert-${type === 'error' ? 'error' : 'success'} fixed top-4 right-4 z-50`;
-    notification.innerHTML = `
-        <i data-lucide="${type === 'error' ? 'alert-circle' : 'check-circle'}" class="h-5 w-5 inline mr-2"></i>
-        ${message}
-    `;
-    
-    document.body.appendChild(notification);
-    
-    // Автоматическое удаление через 5 секунд
-    setTimeout(() => {
-        notification.remove();
-    }, 5000);
-    
-    // Обновить иконки
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
+        Framework.NotificationSystem.show('Найдены ошибки в конфигурации. Проверьте обязательные поля.', 'error');
     }
 }
 
 // Обработка ошибок AJAX запросов
 function handleAjaxError(error) {
     console.error('AJAX ошибка:', error);
-    showNotification('Произошла ошибка при выполнении запроса', 'error');
-} 
+    Framework.NotificationSystem.show('Произошла ошибка при выполнении запроса', 'error');
+}
+
+// Инициализация при загрузке DOM
+let adminManager;
+
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('admin.js: DOM загружен, инициализация...');
+    adminManager = new AdminManager();
+});
+
+console.log('admin.js загружен'); 

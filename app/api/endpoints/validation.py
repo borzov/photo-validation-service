@@ -139,7 +139,7 @@ async def validate_photo(
         storage_client.save_file(file_path, content)
         
         # Create database record
-        ValidationRequestRepository.create(request_id)
+        ValidationRequestRepository.create(request_id, filename=file.filename, file_size=len(content))
         
         # Add processing task to queue
         await add_processing_task(request_id, file_path)

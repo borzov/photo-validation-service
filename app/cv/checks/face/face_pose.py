@@ -1,37 +1,38 @@
 """
-Module for face pose detection on images.
+Модуль для определения позы лица на изображениях.
 """
 import cv2
 import numpy as np
 from typing import Dict, Any, List, Tuple
 import math
 from app.cv.checks.registry import BaseCheck, CheckMetadata, CheckParameter
+from app.cv.checks.mixins import StandardCheckMixin
 from app.cv.checks.face.detector import estimate_pose
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-class FacePoseCheck(BaseCheck):
+class FacePoseCheck(StandardCheckMixin, BaseCheck):
     """
-    Check face pose (frontal) on image.
+    Проверка позы лица (фронтальное положение) на изображении.
     """
     
     @classmethod
     def get_metadata(cls) -> CheckMetadata:
-        """Return metadata for this check module."""
+        """Возвращает метаданные для этого модуля проверки."""
         return CheckMetadata(
             name="face_pose",
-            display_name="Face Pose Check",
-            description="Checks that face is turned frontal (looking at camera)",
+            display_name="Проверка позы лица",
+            description="Проверяет, что лицо повёрнуто фронтально (смотрит в камеру)",
             category="face_detection",
             version="1.0.0",
-            author="Photo Validation Team",
+            author="Maxim Borzov",
             parameters=[
                 CheckParameter(
                     name="max_yaw",
                     type="float",
                     default=25.0,
-                    description="Maximum head turn left/right (in degrees)",
+                    description="Максимальный поворот головы влево/вправо (в градусах)",
                     min_value=5.0,
                     max_value=90.0,
                     required=True
@@ -40,7 +41,7 @@ class FacePoseCheck(BaseCheck):
                     name="max_pitch",
                     type="float",
                     default=25.0,
-                    description="Maximum head tilt up/down (in degrees)",
+                    description="Максимальный наклон головы вверх/вниз (в градусах)",
                     min_value=5.0,
                     max_value=90.0,
                     required=True
@@ -49,7 +50,7 @@ class FacePoseCheck(BaseCheck):
                     name="max_roll",
                     type="float",
                     default=25.0,
-                    description="Maximum head rotation (in degrees)",
+                    description="Максимальный поворот головы (в градусах)",
                     min_value=5.0,
                     max_value=90.0,
                     required=True
@@ -58,24 +59,6 @@ class FacePoseCheck(BaseCheck):
             dependencies=["opencv-python"],
             enabled_by_default=True
         )
-    
-    def __init__(self, **parameters):
-        """Initialize with parameters."""
-        self.parameters = parameters
-        metadata = self.get_metadata()
-        
-        # Set default values
-        for param in metadata.parameters:
-            if param.name not in self.parameters:
-                self.parameters[param.name] = param.default
-        
-        # Validate parameters
-        if not self.validate_parameters(self.parameters):
-            raise ValueError("Invalid parameters provided")
-    
-    def run(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Method for compatibility with old runner."""
-        return self.check(image, context)
     
     def check(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
@@ -93,7 +76,7 @@ class FacePoseCheck(BaseCheck):
             return {
                 "check": "face_pose",
                 "status": "SKIPPED",
-                "reason": "No face detected",
+                "reason": "Лицо не обнаружено",
                 "details": None
             }
 
@@ -103,7 +86,7 @@ class FacePoseCheck(BaseCheck):
             return {
                 "check": "face_pose",
                 "status": "NEEDS_REVIEW",
-                "reason": "Unable to estimate face pose due to missing landmarks",
+                "reason": "Невозможно оценить позу лица из-за отсутствующих ориентиров",
                 "details": None
             }
 
@@ -126,14 +109,14 @@ class FacePoseCheck(BaseCheck):
             
             reasons = []
             if abs(yaw) > max_yaw:
-                reasons.append(f"Head turn {yaw:.1f}° exceeds limit ±{max_yaw}°")
+                reasons.append(f"Поворот головы {yaw:.1f}° превышает предел ±{max_yaw}°")
             if abs(pitch) > max_pitch:
-                reasons.append(f"Head tilt {pitch:.1f}° exceeds limit ±{max_pitch}°")
+                reasons.append(f"Наклон головы {pitch:.1f}° превышает предел ±{max_pitch}°")
 
             # Account for "circular" nature of roll angle
             roll_deviation = min(abs(roll) % 180, 180 - (abs(roll) % 180))
             if roll_deviation > max_roll:
-                reasons.append(f"Head rotation {roll:.1f}° exceeds limit (deviation: {roll_deviation:.1f}°, max: {max_roll}°)")
+                reasons.append(f"Поворот головы {roll:.1f}° превышает предел (отклонение: {roll_deviation:.1f}°, максимум: {max_roll}°)")
 
             # Additional data for response
             details = {
@@ -167,6 +150,6 @@ class FacePoseCheck(BaseCheck):
             return {
                 "check": "face_pose",
                 "status": "FAILED",
-                "reason": f"Error during face pose check: {str(e)}",
+                "reason": f"Ошибка при проверке позы лица: {str(e)}",
                 "details": {"error": str(e), "parameters_used": self.parameters}
             }

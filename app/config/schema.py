@@ -110,34 +110,18 @@ class FaceDetectionConfig(BaseModel):
         le=10,
         description="Maximum number of faces allowed"
     )
-    confidence_threshold: float = Field(
+    face_confidence_threshold: float = Field(
         default=0.4,
         ge=0.1,
         le=0.9,
-        description="Minimum confidence score for face detection"
-    )
-    min_area_ratio: float = Field(
-        default=0.05,
-        ge=0.01,
-        le=0.5,
-        description="Minimum face area ratio relative to image"
-    )
-    max_area_ratio: float = Field(
-        default=0.8,
-        ge=0.5,
-        le=1.0,
-        description="Maximum face area ratio relative to image"
+        description="Confidence threshold for face detection"
     )
     
     @model_validator(mode='after')
-    def validate_face_counts_and_areas(self):
-        """Validate face count and area ratio constraints"""
+    def validate_face_counts(self):
+        """Validate face count constraints"""
         if self.max_count < self.min_count:
             raise ValueError('max_count must be >= min_count')
-        
-        if self.max_area_ratio <= self.min_area_ratio:
-            raise ValueError('max_area_ratio must be > min_area_ratio')
-        
         return self
 
 
@@ -164,25 +148,151 @@ class FacePoseConfig(BaseModel):
     )
 
 
+class FacePositionConfig(BaseModel):
+    """Face position and size settings"""
+    enabled: bool = Field(default=True, description="Enable face position check")
+    face_min_area_ratio: float = Field(
+        default=0.05,
+        ge=0.01,
+        le=0.5,
+        description="Minimum face area ratio relative to image"
+    )
+    face_max_area_ratio: float = Field(
+        default=0.8,
+        ge=0.5,
+        le=1.0,
+        description="Maximum face area ratio relative to image"
+    )
+    face_center_tolerance: float = Field(
+        default=0.4,
+        ge=0.1,
+        le=0.8,
+        description="Tolerance for face center position"
+    )
+    min_width_ratio: float = Field(
+        default=0.15,
+        ge=0.05,
+        le=0.5,
+        description="Minimum face width ratio relative to image"
+    )
+    min_height_ratio: float = Field(
+        default=0.2,
+        ge=0.05,
+        le=0.5,
+        description="Minimum face height ratio relative to image"
+    )
+    min_margin_ratio: float = Field(
+        default=0.03,
+        ge=0.01,
+        le=0.2,
+        description="Minimum margin around face"
+    )
+    boundary_tolerance: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="Tolerance for face boundary detection in pixels"
+    )
+    
+    @model_validator(mode='after')
+    def validate_face_areas(self):
+        """Validate face area ratio constraints"""
+        if self.face_max_area_ratio <= self.face_min_area_ratio:
+            raise ValueError('face_max_area_ratio must be > face_min_area_ratio')
+        return self
+
+
+class AccessoriesConfig(BaseModel):
+    """Accessories detection settings"""
+    enabled: bool = Field(default=True, description="Enable accessories detection")
+    glasses_detection_enabled: bool = Field(default=False, description="Enable glasses detection")
+    headwear_detection_enabled: bool = Field(default=True, description="Enable headwear detection")
+    hand_detection_enabled: bool = Field(default=True, description="Enable hands near face detection")
+    glasses_confidence_threshold: float = Field(
+        default=0.5,
+        ge=0.1,
+        le=0.9,
+        description="Confidence threshold for glasses detection"
+    )
+    skin_detection_threshold: float = Field(
+        default=0.3,
+        ge=0.1,
+        le=0.8,
+        description="Skin detection threshold for hand analysis"
+    )
+    
+    # Aliases for template compatibility
+    @property
+    def glasses_detection(self):
+        return self.glasses_detection_enabled
+    
+    @property  
+    def headwear_detection(self):
+        return self.headwear_detection_enabled
+    
+    @property
+    def hand_detection(self):
+        return self.hand_detection_enabled
+
+
+class BlurrinessConfig(BaseModel):
+    """Image blurriness detection settings"""
+    enabled: bool = Field(default=True, description="Enable blurriness check")
+    laplacian_threshold: int = Field(
+        default=40,
+        ge=10,
+        le=200,
+        description="Minimum Laplacian variance value to consider image sharp"
+    )
+
+
+class ColorModeConfig(BaseModel):
+    """Color mode detection settings"""
+    enabled: bool = Field(default=True, description="Enable color mode check")
+    grayscale_saturation_threshold: int = Field(
+        default=15,
+        ge=5,
+        le=50,
+        description="Saturation threshold for determining grayscale image"
+    )
+    require_color: bool = Field(
+        default=True,
+        description="Whether to require color image (if False, any is accepted)"
+    )
+
+
 class LightingConfig(BaseModel):
     """Lighting quality settings"""
+    enabled: bool = Field(default=True, description="Enable lighting quality check")
     underexposure_threshold: int = Field(
         default=25,
         ge=5,
         le=100,
-        description="Threshold for detecting underexposed areas"
+        description="Threshold for underexposure (mean brightness)"
     )
     overexposure_threshold: int = Field(
         default=240,
         ge=200,
         le=255,
-        description="Threshold for detecting overexposed areas"
+        description="Threshold for overexposure (mean brightness)"
     )
     low_contrast_threshold: int = Field(
         default=20,
         ge=5,
         le=100,
-        description="Threshold for detecting low contrast"
+        description="Threshold for low contrast (standard deviation)"
+    )
+    shadow_ratio_threshold: float = Field(
+        default=0.4,
+        ge=0.1,
+        le=0.8,
+        description="Maximum ratio of dark pixels"
+    )
+    highlight_ratio_threshold: float = Field(
+        default=0.3,
+        ge=0.1,
+        le=0.8,
+        description="Maximum ratio of bright pixels"
     )
     
     @model_validator(mode='after')
@@ -194,73 +304,206 @@ class LightingConfig(BaseModel):
 
 
 class ImageQualityConfig(BaseModel):
-    """Image quality assessment settings"""
+    """Combined image quality settings for admin interface compatibility"""
     enabled: bool = Field(default=True, description="Enable image quality checks")
     blurriness_threshold: int = Field(
         default=40,
         ge=10,
         le=200,
-        description="Threshold for detecting image blurriness"
+        description="Minimum Laplacian variance value to consider image sharp"
     )
     grayscale_saturation: int = Field(
         default=15,
         ge=5,
         le=50,
-        description="Threshold for detecting grayscale images"
+        description="Saturation threshold for determining grayscale image"
     )
-    lighting: LightingConfig = Field(default_factory=LightingConfig)
+    # Include lighting settings for unified access
+    underexposure_threshold: int = Field(
+        default=25,
+        ge=5,
+        le=100,
+        description="Threshold for underexposure (mean brightness)"
+    )
+    overexposure_threshold: int = Field(
+        default=240,
+        ge=200,
+        le=255,
+        description="Threshold for overexposure (mean brightness)"
+    )
+    low_contrast_threshold: int = Field(
+        default=20,
+        ge=5,
+        le=100,
+        description="Threshold for low contrast (standard deviation)"
+    )
+
+
+class RedEyeConfig(BaseModel):
+    """Red eye detection settings"""
+    enabled: bool = Field(default=True, description="Enable red eye detection")
+    red_threshold: int = Field(
+        default=180,
+        ge=100,
+        le=255,
+        description="Minimum red channel brightness for red eye detection"
+    )
+    red_ratio_threshold: float = Field(
+        default=1.8,
+        ge=1.2,
+        le=3.0,
+        description="Minimum ratio of red channel to other channels"
+    )
+    min_red_pixel_ratio: float = Field(
+        default=0.15,
+        ge=0.05,
+        le=0.5,
+        description="Minimum ratio of bright red pixels in pupil area"
+    )
+    pupil_relative_size: float = Field(
+        default=0.3,
+        ge=0.1,
+        le=0.8,
+        description="Relative size of pupil to eye area"
+    )
+    adaptive_threshold: bool = Field(
+        default=True,
+        description="Use adaptive threshold for pupil segmentation"
+    )
+    hsv_detection: bool = Field(
+        default=True,
+        description="Use HSV color space for enhanced red detection"
+    )
+    debug_mode: bool = Field(
+        default=False,
+        description="Enable detailed logging for debugging"
+    )
+    save_debug_images: bool = Field(
+        default=False,
+        description="Save debug images for analysis"
+    )
+
+
+class RealPhotoConfig(BaseModel):
+    """Real photo detection settings"""
+    enabled: bool = Field(default=True, description="Enable real photo detection")
+    gradient_mean_threshold: int = Field(
+        default=20,
+        ge=5,
+        le=100,
+        description="Threshold for gradient analysis"
+    )
+    texture_var_threshold: float = Field(
+        default=1.5,
+        ge=0.5,
+        le=5.0,
+        description="Threshold for texture variation analysis"
+    )
+    color_distribution_threshold: int = Field(
+        default=50,
+        ge=10,
+        le=200,
+        description="Threshold for color distribution analysis"
+    )
+    mid_freq_energy_threshold: int = Field(
+        default=250,
+        ge=100,
+        le=1000,
+        description="Threshold for mid-frequency energy in FFT analysis"
+    )
+    evidence_bias: str = Field(
+        default="photo",
+        description="Bias for determining real photo vs drawing",
+        pattern="^(photo|drawing|neutral)$"
+    )
 
 
 class BackgroundConfig(BaseModel):
     """Background analysis settings"""
     enabled: bool = Field(default=True, description="Enable background check")
-    std_dev_threshold: float = Field(
-        default=100.0,
-        ge=10.0,
-        le=500.0,
+    background_std_dev_threshold: float = Field(
+        default=110.0,
+        ge=50.0,
+        le=200.0,
         description="Standard deviation threshold for background uniformity"
     )
-    dark_threshold: int = Field(
-        default=100,
-        ge=50,
-        le=200,
-        description="Threshold for detecting dark backgrounds"
+    is_dark_threshold: int = Field(
+        default=80,
+        ge=30,
+        le=150,
+        description="Brightness threshold for determining dark background"
+    )
+    edge_density_threshold: float = Field(
+        default=0.08,
+        ge=0.01,
+        le=0.5,
+        description="Edge density threshold for texture detection"
+    )
+    grad_mean_threshold: int = Field(
+        default=45,
+        ge=10,
+        le=100,
+        description="Mean gradient threshold for smooth background"
     )
 
 
 class ObjectDetectionConfig(BaseModel):
     """Extraneous objects detection settings"""
     enabled: bool = Field(default=True, description="Enable object detection check")
-    min_contour_area_ratio: float = Field(
+    min_object_contour_area_ratio: float = Field(
         default=0.03,
         ge=0.001,
         le=0.5,
-        description="Minimum contour area ratio for object detection"
+        description="Minimum object contour area ratio relative to image"
     )
     person_scale_factor: float = Field(
         default=1.1,
-        ge=1.01,
-        le=2.0,
-        description="Scale factor for person detection"
+        ge=1.02,
+        le=1.5,
+        description="Scale factor for HOG person detector"
     )
-
-
-class AccessoriesConfig(BaseModel):
-    """Accessories detection settings"""
-    enabled: bool = Field(default=True, description="Enable accessories detection")
-    glasses_detection: bool = Field(default=True, description="Detect glasses")
-    headwear_detection: bool = Field(default=True, description="Detect headwear")
-    hand_detection: bool = Field(default=True, description="Detect hands near face")
+    person_min_neighbors: int = Field(
+        default=6,
+        ge=1,
+        le=20,
+        description="Minimum neighbors for HOG person detector"
+    )
+    canny_threshold1: int = Field(
+        default=50,
+        ge=10,
+        le=200,
+        description="Lower threshold for Canny edge detector"
+    )
+    canny_threshold2: int = Field(
+        default=150,
+        ge=50,
+        le=300,
+        description="Upper threshold for Canny edge detector"
+    )
+    
+    @model_validator(mode='after')
+    def validate_canny_thresholds(self):
+        """Validate that canny_threshold2 is greater than canny_threshold1"""
+        if self.canny_threshold2 <= self.canny_threshold1:
+            raise ValueError('canny_threshold2 must be > canny_threshold1')
+        return self
 
 
 class ValidationChecksConfig(BaseModel):
     """Complete validation checks configuration"""
     face_detection: FaceDetectionConfig = Field(default_factory=FaceDetectionConfig)
     face_pose: FacePoseConfig = Field(default_factory=FacePoseConfig)
-    image_quality: ImageQualityConfig = Field(default_factory=ImageQualityConfig)
+    face_position: FacePositionConfig = Field(default_factory=FacePositionConfig)
+    accessories: AccessoriesConfig = Field(default_factory=AccessoriesConfig)
+    blurriness: BlurrinessConfig = Field(default_factory=BlurrinessConfig)
+    color_mode: ColorModeConfig = Field(default_factory=ColorModeConfig)
+    lighting: LightingConfig = Field(default_factory=LightingConfig)
+    red_eye: RedEyeConfig = Field(default_factory=RedEyeConfig)
+    real_photo: RealPhotoConfig = Field(default_factory=RealPhotoConfig)
     background: BackgroundConfig = Field(default_factory=BackgroundConfig)
     object_detection: ObjectDetectionConfig = Field(default_factory=ObjectDetectionConfig)
-    accessories: AccessoriesConfig = Field(default_factory=AccessoriesConfig)
+    # Add unified image_quality for admin interface compatibility
+    image_quality: ImageQualityConfig = Field(default_factory=ImageQualityConfig)
 
 
 class ValidationConfig(BaseModel):
@@ -284,28 +527,31 @@ class ConfigurationSchema(BaseModel):
     validation: ValidationConfig = Field(default_factory=ValidationConfig)
     
     model_config = {
-        "json_encoders": {
-            datetime: lambda v: v.isoformat()
-        }
+        "validate_assignment": True
     }
-        
+    
     @model_validator(mode='after')
     def validate_configuration_consistency(self):
-        """Validate cross-field consistency"""
-        # Validate face detection settings
-        face_config = self.validation.checks.face_detection
-        if face_config.min_count > face_config.max_count:
-            raise ValueError("Face detection min_count cannot be greater than max_count")
+        """Validate overall configuration consistency"""
+        # Check that storage path is not empty
+        if not self.system.storage.storage_path.strip():
+            raise ValueError('Storage path cannot be empty')
         
-        # Validate image requirements
-        img_req = self.validation.image_requirements
-        if img_req.min_height < img_req.min_width * 0.5:
-            raise ValueError("Image height should not be less than 50% of width")
+        # Check that at least one format is allowed
+        if not self.system.storage.allowed_formats:
+            raise ValueError('At least one image format must be allowed')
         
-        return self 
+        # Check that image requirements are reasonable
+        min_w = self.validation.image_requirements.min_width
+        min_h = self.validation.image_requirements.min_height
+        max_pixels = self.system.storage.max_pixels
+        
+        if min_w * min_h > max_pixels:
+            raise ValueError('Minimum image dimensions exceed maximum allowed pixels')
+        
+        return self
 
 
-# Request models for API endpoints
 class ValidationRequestModel(BaseModel):
     """Model for validation request parameters"""
     face_count_min: int = Field(default=1, ge=0, le=10)
@@ -317,7 +563,11 @@ class ValidationRequestModel(BaseModel):
     
     @model_validator(mode='after')
     def validate_face_count_range(self):
-        """Validate that face count max >= min"""
+        """Validate face count range"""
         if self.face_count_max < self.face_count_min:
-            raise ValueError("face_count_max must be >= face_count_min")
-        return self 
+            raise ValueError('face_count_max must be >= face_count_min')
+        return self
+
+
+# Export configuration schema instance
+config_schema = ConfigurationSchema() 

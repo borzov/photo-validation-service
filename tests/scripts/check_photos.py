@@ -13,7 +13,8 @@ import argparse
 import random
 from io import BytesIO
 from pathlib import Path
-import shutil # Не используется, но был импортирован ранее
+import shutil
+
 import html
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -378,19 +379,8 @@ def get_image_info(image_path: str) -> Dict[str, Any]:
         # Читаем файл здесь, чтобы не хранить путь вне этой функции
         with open(image_path, "rb") as img_file:
             img_data = img_file.read()
-            # Можно добавить сюда ресайз для превью, если файлы большие
-            # from PIL import Image
-            # try:
-            #     pil_img = Image.open(BytesIO(img_data))
-            #     pil_img.thumbnail((200, 250)) # Макс. размер превью
-            #     buffer = BytesIO()
-            #     pil_img.save(buffer, format="JPEG")
-            #     img_data_resized = buffer.getvalue()
-            #     image_info["preview_base64"] = base64.b64encode(img_data_resized).decode('utf-8')
-            # except Exception as pil_e:
-            #     print(f"Warning: Could not resize preview for {file_name}: {pil_e}. Using original.")
-            #     image_info["preview_base64"] = base64.b64encode(img_data).decode('utf-8')
-            # Пока используем оригинал для простоты
+
+            # Используем оригинал изображения для превью
             image_info["preview_base64"] = base64.b64encode(img_data).decode('utf-8')
 
     except FileNotFoundError:
@@ -636,6 +626,210 @@ def generate_html_report(results: List[Dict[str, Any]], report_dir: str, timesta
         print(f"Ошибка при генерации отчета: {e}")
         raise
 
+def generate_technical_report(results: List[Dict[str, Any]], report_dir: str, timestamp: str) -> str:
+    """
+    Генерирует технический текстовый отчет для анализа результатов валидации
+    """
+    report_path = os.path.join(report_dir, f"technical_report_{timestamp}.txt")
+    
+    try:
+        with open(report_path, "w", encoding="utf-8") as f:
+            f.write("=" * 80 + "\n")
+            f.write("ТЕХНИЧЕСКИЙ ОТЧЁТ ВАЛИДАЦИИ ФОТОГРАФИЙ\n")
+            f.write("=" * 80 + "\n")
+            f.write(f"Дата и время генерации: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Общее количество проверенных файлов: {len(results)}\n")
+            f.write("=" * 80 + "\n\n")
+            
+            # Анализируем общую статистику
+            total_files = len(results)
+            approved = sum(1 for r in results if r.get('validation_result', {}).get('overallStatus') == 'APPROVED')
+            rejected = sum(1 for r in results if r.get('validation_result', {}).get('overallStatus') == 'REJECTED')
+            manual_review = sum(1 for r in results if r.get('validation_result', {}).get('overallStatus') == 'MANUAL_REVIEW')
+            errors = sum(1 for r in results if r.get('error') or not r.get('validation_result'))
+            
+            f.write("ОБЩАЯ СТАТИСТИКА:\n")
+            f.write("-" * 40 + "\n")
+            f.write(f"Общее количество: {total_files}\n")
+            f.write(f"Одобрено (APPROVED): {approved}\n")
+            f.write(f"Отклонено (REJECTED): {rejected}\n")
+            f.write(f"Требует проверки (MANUAL_REVIEW): {manual_review}\n")
+            f.write(f"Ошибки обработки: {errors}\n")
+            f.write("\n")
+            
+            # Детальный анализ по каждому файлу
+            f.write("ДЕТАЛЬНЫЙ АНАЛИЗ ПО ФАЙЛАМ:\n")
+            f.write("=" * 80 + "\n")
+            
+            for i, result in enumerate(results, 1):
+                image_info = result.get("image_info", {})
+                validation_result = result.get("validation_result", {})
+                error = result.get("error")
+                
+                file_name = image_info.get("file_name", f"Неизвестный файл #{i}")
+                file_size = image_info.get("file_size", 0)
+                
+                f.write(f"\n[{i:03d}] ФАЙЛ: {file_name}\n")
+                f.write("-" * 80 + "\n")
+                f.write(f"Размер файла: {file_size / 1024:.1f} КБ\n")
+                
+                # Если есть ошибка на уровне файла
+                if error:
+                    f.write(f"ОШИБКА ОБРАБОТКИ: {error}\n")
+                    if image_info.get("error"):
+                        f.write(f"Ошибка файла: {image_info['error']}\n")
+                    f.write("\n")
+                    continue
+                
+                # Если нет результата валидации
+                if not validation_result:
+                    f.write("РЕЗУЛЬТАТ ВАЛИДАЦИИ: Недоступен\n\n")
+                    continue
+                
+                # Основной статус
+                overall_status = validation_result.get('overallStatus', validation_result.get('status', 'UNKNOWN'))
+                processing_time = validation_result.get('processingTime', 0)
+                f.write(f"ОБЩИЙ СТАТУС: {overall_status}\n")
+                f.write(f"Время обработки: {processing_time:.2f} сек\n")
+                
+                # Основные проблемы
+                issues = validation_result.get("issues", [])
+                if issues:
+                    f.write(f"ОСНОВНЫЕ ПРОБЛЕМЫ ({len(issues)}):\n")
+                    for j, issue in enumerate(issues, 1):
+                        f.write(f"  {j}. {issue}\n")
+                
+                # Детальные результаты проверок
+                checks = validation_result.get("checks", [])
+                if checks:
+                    f.write(f"\nРЕЗУЛЬТАТЫ ПРОВЕРОК ({len(checks)}):\n")
+                    
+                    passed_checks = [c for c in checks if c.get('status') == 'PASSED']
+                    failed_checks = [c for c in checks if c.get('status') == 'FAILED']
+                    skipped_checks = [c for c in checks if c.get('status') == 'SKIPPED']
+                    review_checks = [c for c in checks if c.get('status') == 'NEEDS_REVIEW']
+                    
+                    f.write(f"  Пройдено: {len(passed_checks)}\n")
+                    f.write(f"  Провалено: {len(failed_checks)}\n")
+                    f.write(f"  Пропущено: {len(skipped_checks)}\n")
+                    f.write(f"  Требует проверки: {len(review_checks)}\n")
+                    
+                    # Детально по провалившимся проверкам
+                    if failed_checks:
+                        f.write("\n  ПРОВАЛИВШИЕСЯ ПРОВЕРКИ:\n")
+                        for check in failed_checks:
+                            check_name = check.get("check", "unknown")
+                            check_reason = check.get("reason", "Причина не указана")
+                            check_details = check.get("details", {})
+                            
+                            f.write(f"    - {check_name}: {check_reason}\n")
+                            
+                            # Специальная обработка для разных типов проверок
+                            if check_name == "face_pose" and isinstance(check_details, dict):
+                                yaw = check_details.get('yaw', 0)
+                                pitch = check_details.get('pitch', 0)
+                                roll = check_details.get('roll', 0)
+                                thresholds = check_details.get('thresholds', {})
+                                f.write(f"      Поворот влево/вправо (yaw): {yaw:.1f}° (лимит: ±{thresholds.get('max_yaw', 0)}°)\n")
+                                f.write(f"      Наклон вперёд/назад (pitch): {pitch:.1f}° (лимит: ±{thresholds.get('max_pitch', 0)}°)\n")
+                                f.write(f"      Поворот головы (roll): {roll:.1f}° (лимит: ±{thresholds.get('max_roll', 0)}°)\n")
+                            
+                            elif check_name == "background" and isinstance(check_details, dict):
+                                bg_std = check_details.get('background_std_dev', 0)
+                                bg_mean = check_details.get('background_mean', 0)
+                                is_dark = check_details.get('is_dark_background', False)
+                                thresholds = check_details.get('thresholds', {})
+                                f.write(f"      Однородность фона (std_dev): {bg_std:.1f} (лимит: {thresholds.get('std_dev', 0)})\n")
+                                f.write(f"      Яркость фона: {bg_mean:.1f} {'(слишком тёмный)' if is_dark else ''}\n")
+                            
+                            elif check_name == "red_eye" and isinstance(check_details, dict):
+                                affected_eyes = check_details.get('affected_eyes', [])
+                                if affected_eyes:
+                                    f.write(f"      Поражённые глаза: {', '.join(affected_eyes)}\n")
+                                    
+                                    # Детали по каждому глазу
+                                    left_metrics = check_details.get('left_eye_metrics', {})
+                                    right_metrics = check_details.get('right_eye_metrics', {})
+                                    
+                                    if left_metrics.get('red_eye_detected'):
+                                        rgb = left_metrics.get('rgb_analysis', {})
+                                        f.write(f"      Левый глаз RGB: R={rgb.get('r_mean', 0):.1f}, G={rgb.get('g_mean', 0):.1f}, B={rgb.get('b_mean', 0):.1f}\n")
+                                    
+                                    if right_metrics.get('red_eye_detected'):
+                                        rgb = right_metrics.get('rgb_analysis', {})
+                                        f.write(f"      Правый глаз RGB: R={rgb.get('r_mean', 0):.1f}, G={rgb.get('g_mean', 0):.1f}, B={rgb.get('b_mean', 0):.1f}\n")
+                            
+                            elif check_name == "lighting" and isinstance(check_details, dict):
+                                brightness = check_details.get('mean_brightness', 0)
+                                contrast = check_details.get('std_brightness', 0)
+                                shadow_ratio = check_details.get('shadow_ratio', 0)
+                                highlight_ratio = check_details.get('highlight_ratio', 0)
+                                thresholds = check_details.get('thresholds', {})
+                                f.write(f"      Средняя яркость: {brightness:.1f} (норма: {thresholds.get('underexposure', 0)}-{thresholds.get('overexposure', 255)})\n")
+                                f.write(f"      Контраст: {contrast:.1f} (мин: {thresholds.get('low_contrast', 0)})\n")
+                                f.write(f"      Доля теней: {shadow_ratio:.1%} (макс: {thresholds.get('shadow_ratio', 1):.1%})\n")
+                                f.write(f"      Доля бликов: {highlight_ratio:.1%} (макс: {thresholds.get('highlight_ratio', 1):.1%})\n")
+                            
+                            elif check_name == "real_photo" and isinstance(check_details, dict):
+                                gradient = check_details.get('gradient_mean', 0)
+                                texture = check_details.get('texture_variance', 0)
+                                color_dist = check_details.get('color_distribution_score', 0)
+                                freq_energy = check_details.get('mid_freq_energy', 0)
+                                thresholds = check_details.get('thresholds', {})
+                                evidence = check_details.get('photo_evidence', 0)
+                                f.write(f"      Сложность градиентов: {gradient:.1f} (мин: {thresholds.get('gradient', 0)})\n")
+                                f.write(f"      Вариация текстуры: {texture:.1f} (мин: {thresholds.get('texture', 0)})\n")
+                                f.write(f"      Распределение цветов: {color_dist:.1f} (мин: {thresholds.get('color', 0)})\n")
+                                f.write(f"      Частотное содержание: {freq_energy:.1f} (мин: {thresholds.get('frequency', 0)})\n")
+                                f.write(f"      Доказательств реальности фото: {evidence}/4\n")
+                            
+                            elif check_name == "face_count" and isinstance(check_details, dict):
+                                face_count = check_details.get('face_count', 0)
+                                min_count = check_details.get('min_count_required', 1)
+                                max_count = check_details.get('max_count_allowed', 1)
+                                faces = check_details.get('faces', [])
+                                f.write(f"      Найдено лиц: {face_count} (норма: {min_count}-{max_count})\n")
+                                if faces:
+                                    for idx, face in enumerate(faces):
+                                        confidence = face.get('confidence', 0)
+                                        bbox = face.get('bbox', [0, 0, 0, 0])
+                                        area = face.get('area', 0)
+                                        f.write(f"      Лицо {idx+1}: уверенность={confidence:.2f}, область={area}px², bbox={bbox}\n")
+                            
+                            # Для остальных проверок просто выводим детали как JSON
+                            elif check_details and not isinstance(check_details, dict):
+                                f.write(f"      Детали: {check_details}\n")
+                            elif isinstance(check_details, dict) and check_details:
+                                f.write(f"      Параметры и результаты:\n")
+                                for key, value in check_details.items():
+                                    if key != 'parameters_used':  # Исключаем параметры - они обычно длинные
+                                        f.write(f"        {key}: {value}\n")
+                    
+                    # Пропущенные проверки
+                    if skipped_checks:
+                        f.write("\n  ПРОПУЩЕННЫЕ ПРОВЕРКИ:\n")
+                        for check in skipped_checks:
+                            check_name = check.get("check", "unknown")
+                            check_reason = check.get("reason", "Причина не указана")
+                            f.write(f"    - {check_name}: {check_reason}\n")
+                    
+                    # Проверки требующие внимания
+                    if review_checks:
+                        f.write("\n  ПРОВЕРКИ ТРЕБУЮЩИЕ ВНИМАНИЯ:\n")
+                        for check in review_checks:
+                            check_name = check.get("check", "unknown")
+                            check_reason = check.get("reason", "Причина не указана")
+                            f.write(f"    - {check_name}: {check_reason}\n")
+                
+                f.write("\n")
+        
+        print(f"Технический отчёт сгенерирован: {report_path}")
+        return report_path
+        
+    except Exception as e:
+        print(f"Ошибка при генерации технического отчёта: {e}")
+        raise
+
 def process_single_photo(photo_path, api_url, max_attempts, delay):
     image_info = get_image_info(photo_path)
     result = {"image_info": image_info, "validation_result": None, "error": image_info.get("error")}
@@ -710,15 +904,17 @@ def process_photos_parallel(api_url: str, photo_dir: str, report_dir: str, max_a
     total_run_time = end_run_time - start_run_time
     try:
         report_path = generate_html_report(report_data, report_dir, timestamp)
+        technical_report_path = generate_technical_report(report_data, report_dir, timestamp)
     except Exception as report_e:
-        print(f"\nFATAL ERROR: Failed to generate HTML report: {report_e}")
+        print(f"\nFATAL ERROR: Failed to generate reports: {report_e}")
         print("Raw results data:")
         print(json.dumps(report_data, indent=2, ensure_ascii=False))
         sys.exit(1)
     print(f"\n--- Run Summary ({datetime.now().strftime('%Y-%m-%d %H:%M:%S')}) ---")
     print(f"Total photos found: {len(photos)}")
     print(f"Total script execution time: {total_run_time:.2f} sec.")
-    print(f"Check completed. Report saved to: {report_path}")
+    print(f"HTML отчёт сохранён: {report_path}")
+    print(f"Технический отчёт сохранён: {technical_report_path}")
     try:
         import webbrowser
         report_abs_path = os.path.abspath(report_path)

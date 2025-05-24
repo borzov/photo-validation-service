@@ -8,12 +8,13 @@ import json
 import time
 from datetime import datetime
 from typing import Dict, Any, List, Tuple, Optional
-from app.cv.checks.base import BaseCheck
+from app.cv.checks.registry import BaseCheck, CheckMetadata, CheckParameter
+from app.cv.checks.mixins import StandardCheckMixin
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-class RedEyeCheck(BaseCheck):
+class RedEyeCheck(StandardCheckMixin, BaseCheck):
     """
     Проверка на эффект красных глаз в области глаз.
     
@@ -23,45 +24,98 @@ class RedEyeCheck(BaseCheck):
     2. Проверка на наличие ярких красных пикселей
     3. Сегментация области зрачка с использованием адаптивных порогов
     """
-    check_id = "redEye"
-    name = "Проверка красных глаз"
-    description = "Проверяет наличие эффекта красных глаз, вызванного вспышкой"
     
-    default_config = {
-        # Основные параметры
-        "red_threshold": 180,         # Минимальная яркость красного канала
-        "red_ratio_threshold": 1.8,   # Минимальное соотношение красного к другим каналам
-        "min_red_pixel_ratio": 0.15,  # Минимальная доля ярких красных пикселей
-        
-        # Дополнительные параметры для улучшенного алгоритма
-        "pupil_relative_size": 0.3,   # Относительный размер зрачка к глазу
-        "adaptive_threshold": True,   # Использовать адаптивный порог для зрачка
-        "hsv_detection": True,        # Использовать HSV для улучшенного обнаружения
-        "hsv_red_lower1": [0, 70, 50],    # Нижняя граница для красного в HSV (первый диапазон)
-        "hsv_red_upper1": [10, 255, 255],  # Верхняя граница для красного в HSV (первый диапазон)
-        "hsv_red_lower2": [170, 70, 50],   # Нижняя граница для красного в HSV (второй диапазон)
-        "hsv_red_upper2": [180, 255, 255],  # Верхняя граница для красного в HSV (второй диапазон)
-        
-        # Параметры логирования
-        "debug_mode": True,          # Режим подробного логирования
-        "save_debug_images": True,   # Сохранять ли изображения для отладки
-        "debug_output_dir": "/app/local_storage/debug",  # Директория для отладочных материалов
-    }
+    @classmethod
+    def get_metadata(cls) -> CheckMetadata:
+        """Return metadata for this check module."""
+        return CheckMetadata(
+            name="red_eye",
+            display_name="Проверка красных глаз",
+            description="Проверяет наличие эффекта красных глаз, вызванного вспышкой камеры",
+            category="image_quality",
+            version="1.0.0",
+            author="Maxim Borzov",
+            parameters=[
+                CheckParameter(
+                    name="red_threshold",
+                    type="int",
+                    default=180,
+                    description="Минимальная яркость красного канала для обнаружения красных глаз",
+                    min_value=100,
+                    max_value=255,
+                    required=True
+                ),
+                CheckParameter(
+                    name="red_ratio_threshold",
+                    type="float",
+                    default=1.8,
+                    description="Минимальное соотношение красного канала к другим каналам",
+                    min_value=1.2,
+                    max_value=3.0,
+                    required=True
+                ),
+                CheckParameter(
+                    name="min_red_pixel_ratio",
+                    type="float",
+                    default=0.15,
+                    description="Минимальное соотношение ярких красных пикселей в области зрачка",
+                    min_value=0.05,
+                    max_value=0.5,
+                    required=True
+                ),
+                CheckParameter(
+                    name="pupil_relative_size",
+                    type="float",
+                    default=0.3,
+                    description="Относительный размер зрачка к области глаза",
+                    min_value=0.1,
+                    max_value=0.8,
+                    required=False
+                ),
+                CheckParameter(
+                    name="adaptive_threshold",
+                    type="bool",
+                    default=True,
+                    description="Использовать адаптивный порог для сегментации зрачка",
+                    required=False
+                ),
+                CheckParameter(
+                    name="hsv_detection",
+                    type="bool",
+                    default=True,
+                    description="Использовать цветовое пространство HSV для улучшенного обнаружения красного",
+                    required=False
+                ),
+                CheckParameter(
+                    name="debug_mode",
+                    type="bool",
+                    default=False,
+                    description="Включить подробное логирование для отладки",
+                    required=False
+                ),
+                CheckParameter(
+                    name="save_debug_images",
+                    type="bool",
+                    default=False,
+                    description="Сохранять отладочные изображения для анализа",
+                    required=False
+                )
+            ],
+            dependencies=["opencv-python"],
+            enabled_by_default=True
+        )
     
-    def __init__(self, config: Dict[str, Any] = None):
-        """
-        Инициализация класса с конфигурацией.
+    def __init__(self, **parameters):
+        """Initialize with parameters and debug directory."""
+        super().__init__(**parameters)
         
-        Args:
-            config: Пользовательская конфигурация, которая будет объединена с default_config
-        """
-        super().__init__(config)
-        
-        # Инициализация дебаг-директории, если требуется
-        if self.config["save_debug_images"] and not os.path.exists(self.config["debug_output_dir"]):
-            os.makedirs(self.config["debug_output_dir"], exist_ok=True)
+        # Initialize debug directory if needed
+        if self.parameters["save_debug_images"]:
+            debug_dir = "/app/local_storage/debug"
+            if not os.path.exists(debug_dir):
+                os.makedirs(debug_dir, exist_ok=True)
     
-    def run(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
+    def check(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Выполняет проверку на эффект красных глаз.
         
@@ -72,99 +126,64 @@ class RedEyeCheck(BaseCheck):
         Returns:
             Результаты проверки с подробными метриками
         """
-        start_time = time.time()
-        debug_info = {
-            "timestamp": datetime.now().isoformat(),
-            "image_shape": image.shape,
-            "config": self.config.copy(),
-            "landmarks_available": False,
-            "eyes_detected": False,
-            "eyes_data": {
-                "left": {},
-                "right": {}
-            },
-            "execution_times": {}
-        }
-        
-        # Получаем landmarks из контекста
-        landmarks = context.get("face", {}).get("landmarks") if context else None
-        
-        if not landmarks or len(landmarks) < 68:
-            logger.warning("Skipping red eye check due to missing landmarks")
-            debug_info["reason"] = "No landmarks available for red eye check"
-            self._save_debug_info(image, None, debug_info)
-            
+        if not context or "face" not in context:
             return {
-                "status": "PASSED",
-                "reason": "No landmarks available for red eye check",
-                "details": None,
-                "debug_info": debug_info if self.config["debug_mode"] else None
+                "check": "red_eye",
+                "status": "SKIPPED",
+                "reason": "Лицо не обнаружено",
+                "details": None
             }
-    
-        debug_info["landmarks_available"] = True
-        
+
+        landmarks = context["face"].get("landmarks")
+        if not landmarks or len(landmarks) < 68:
+            return {
+                "check": "red_eye",
+                "status": "SKIPPED",
+                "reason": "Нет ориентиров для проверки красных глаз",
+                "details": None
+            }
+
         try:
             # Получаем области глаз из landmarks
             left_eye = np.array(landmarks[36:42], dtype=np.int32)
             right_eye = np.array(landmarks[42:48], dtype=np.int32)
-            debug_info["eyes_detected"] = True
             
-            # Проверка каждого глаза с расширенным анализом
-            left_eye_start = time.time()
+            # Проверка каждого глаза
             left_red, left_metrics = self._check_eye_region(image, left_eye, "left")
-            left_eye_time = time.time() - left_eye_start
-            debug_info["execution_times"]["left_eye_analysis"] = left_eye_time
-            debug_info["eyes_data"]["left"] = left_metrics
-            
-            right_eye_start = time.time()
             right_red, right_metrics = self._check_eye_region(image, right_eye, "right")
-            right_eye_time = time.time() - right_eye_start
-            debug_info["execution_times"]["right_eye_analysis"] = right_eye_time
-            debug_info["eyes_data"]["right"] = right_metrics
             
             affected_eyes = []
             if left_red: affected_eyes.append("left")
             if right_red: affected_eyes.append("right")
             
-            debug_info["affected_eyes"] = affected_eyes
-            debug_info["total_execution_time"] = time.time() - start_time
-            
-            # Сохраняем отладочную информацию
-            self._save_debug_info(image, [left_eye, right_eye], debug_info)
+            details = {
+                "affected_eyes": affected_eyes,
+                "left_eye_metrics": left_metrics,
+                "right_eye_metrics": right_metrics,
+                "parameters_used": self.parameters
+            }
             
             if affected_eyes:
                 return {
+                    "check": "red_eye",
                     "status": "FAILED",
-                    "reason": f"Red eye effect detected in {' and '.join(affected_eyes)} eye(s)",
-                    "details": {
-                        "affected_eyes": affected_eyes,
-                        "left_eye_metrics": left_metrics,
-                        "right_eye_metrics": right_metrics
-                    },
-                    "debug_info": debug_info if self.config["debug_mode"] else None
+                    "reason": f"Обнаружен эффект красных глаз в {' и '.join(affected_eyes)} глазу(ах)",
+                    "details": details
                 }
             else:
                 return {
+                    "check": "red_eye",
                     "status": "PASSED",
-                    "details": {
-                        "affected_eyes": [],
-                        "left_eye_metrics": left_metrics,
-                        "right_eye_metrics": right_metrics
-                    },
-                    "debug_info": debug_info if self.config["debug_mode"] else None
+                    "details": details
                 }
                 
         except Exception as e:
             logger.error(f"Error during red eye check: {e}")
-            debug_info["error"] = str(e)
-            debug_info["traceback"] = import_traceback_if_available()
-            self._save_debug_info(image, None, debug_info)
-            
             return {
-                "status": "PASSED",
-                "reason": f"Red eye check error: {str(e)}",
-                "details": None,
-                "debug_info": debug_info if self.config["debug_mode"] else None
+                "check": "red_eye",
+                "status": "NEEDS_REVIEW",
+                "reason": f"Ошибка при проверке красных глаз: {str(e)}",
+                "details": {"error": str(e), "parameters_used": self.parameters}
             }
     
     def _check_eye_region(self, image: np.ndarray, eye_points: np.ndarray, eye_side: str) -> Tuple[bool, Dict[str, Any]]:
@@ -218,7 +237,7 @@ class RedEyeCheck(BaseCheck):
         eye_center_y = h_with_margin // 2
         
         # Определяем размер зрачка - обычно 20-30% от размера глаза
-        pupil_radius = int(min(w_with_margin, h_with_margin) * self.config["pupil_relative_size"])
+        pupil_radius = int(min(w_with_margin, h_with_margin) * self.parameters["pupil_relative_size"])
         metrics["roi_info"]["pupil_radius"] = pupil_radius
         
         # Создаем маску для зрачка (центральная часть глаза)
@@ -253,9 +272,9 @@ class RedEyeCheck(BaseCheck):
         }
         
         # Получаем параметры из конфигурации
-        red_threshold = self.config["red_threshold"]
-        red_ratio_threshold = self.config["red_ratio_threshold"]
-        min_red_pixel_ratio = self.config["min_red_pixel_ratio"]
+        red_threshold = self.parameters["red_threshold"]
+        red_ratio_threshold = self.parameters["red_ratio_threshold"]
+        min_red_pixel_ratio = self.parameters["min_red_pixel_ratio"]
         
         # Логирование для отладки
         logger.debug(f"Red eye check for {eye_side} eye: R={r_mean:.1f}, G={g_mean:.1f}, B={b_mean:.1f}")
@@ -293,15 +312,15 @@ class RedEyeCheck(BaseCheck):
         
         # МЕТОД 3: Анализ в HSV цветовом пространстве, если включен
         method3_result = False
-        if self.config["hsv_detection"]:
+        if self.parameters["hsv_detection"]:
             # Конвертируем в HSV для лучшего обнаружения красного цвета
             eye_hsv = cv2.cvtColor(eye_roi, cv2.COLOR_BGR2HSV)
             
             # Красный цвет в HSV находится в двух диапазонах
-            lower_red1 = np.array(self.config["hsv_red_lower1"])
-            upper_red1 = np.array(self.config["hsv_red_upper1"])
-            lower_red2 = np.array(self.config["hsv_red_lower2"])
-            upper_red2 = np.array(self.config["hsv_red_upper2"])
+            lower_red1 = np.array([0, 70, 50])
+            upper_red1 = np.array([10, 255, 255])
+            lower_red2 = np.array([170, 70, 50])
+            upper_red2 = np.array([180, 255, 255])
             
             # Создаем маски для красного цвета
             red_mask1 = cv2.inRange(eye_hsv, lower_red1, upper_red1)
@@ -329,7 +348,7 @@ class RedEyeCheck(BaseCheck):
         
         # Объединяем результаты всех методов
         is_red_eye = method1_result or method2_result
-        if self.config["hsv_detection"]:
+        if self.parameters["hsv_detection"]:
             is_red_eye = is_red_eye or method3_result
         
         metrics["red_eye_detected"] = is_red_eye
@@ -349,13 +368,13 @@ class RedEyeCheck(BaseCheck):
             eye_regions: Список массивов с координатами глаз или None
             debug_info: Словарь с отладочной информацией
         """
-        if not self.config["save_debug_images"]:
+        if not self.parameters["save_debug_images"]:
             return
         
         try:
             # Создаем уникальное имя файла на основе времени
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-            base_name = f"{self.config['debug_output_dir']}/red_eye_check_{timestamp}"
+            base_name = f"{self.parameters['debug_output_dir']}/red_eye_check_{timestamp}"
             
             # Сохраняем JSON с результатами анализа
             with open(f"{base_name}_data.json", 'w') as f:
@@ -389,7 +408,7 @@ class RedEyeCheck(BaseCheck):
                         # Рисуем центр зрачка и его примерную область
                         center_x = x_with_margin + w_with_margin // 2
                         center_y = y_with_margin + h_with_margin // 2
-                        pupil_radius = int(min(w_with_margin, h_with_margin) * self.config["pupil_relative_size"])
+                        pupil_radius = int(min(w_with_margin, h_with_margin) * self.parameters["pupil_relative_size"])
                         cv2.circle(debug_image, (center_x, center_y), pupil_radius, color, 1)
                         
                         # Добавляем текст с результатом
@@ -433,7 +452,7 @@ class RedEyeCheck(BaseCheck):
                             cv2.imwrite(f"{base_name}_{eye_side}_blue_channel.jpg", b)
                             
                             # Если используется HSV анализ, сохраняем и его результаты
-                            if self.config["hsv_detection"]:
+                            if self.parameters["hsv_detection"]:
                                 eye_hsv = cv2.cvtColor(eye_roi, cv2.COLOR_BGR2HSV)
                                 h, s, v = cv2.split(eye_hsv)
                                 cv2.imwrite(f"{base_name}_{eye_side}_hsv_hue.jpg", h)
@@ -441,10 +460,10 @@ class RedEyeCheck(BaseCheck):
                                 cv2.imwrite(f"{base_name}_{eye_side}_hsv_value.jpg", v)
                                 
                                 # Создаем цветовую маску красного
-                                lower_red1 = np.array(self.config["hsv_red_lower1"])
-                                upper_red1 = np.array(self.config["hsv_red_upper1"])
-                                lower_red2 = np.array(self.config["hsv_red_lower2"])
-                                upper_red2 = np.array(self.config["hsv_red_upper2"])
+                                lower_red1 = np.array([0, 70, 50])
+                                upper_red1 = np.array([10, 255, 255])
+                                lower_red2 = np.array([170, 70, 50])
+                                upper_red2 = np.array([180, 255, 255])
                                 
                                 red_mask1 = cv2.inRange(eye_hsv, lower_red1, upper_red1)
                                 red_mask2 = cv2.inRange(eye_hsv, lower_red2, upper_red2)

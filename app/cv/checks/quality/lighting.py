@@ -1,36 +1,37 @@
 """
-Module for image lighting quality check.
+Модуль для проверки качества освещения изображения.
 """
 import cv2
 import numpy as np
 from typing import Dict, Any
 import math
 from app.cv.checks.registry import BaseCheck, CheckMetadata, CheckParameter
+from app.cv.checks.mixins import StandardCheckMixin
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-class LightingCheck(BaseCheck):
+class LightingCheck(StandardCheckMixin, BaseCheck):
     """
-    Check lighting quality in image.
+    Проверка качества освещения изображения.
     """
     
     @classmethod
     def get_metadata(cls) -> CheckMetadata:
-        """Return metadata for this check module."""
+        """Возвращает метаданные для этого модуля проверки."""
         return CheckMetadata(
             name="lighting",
-            display_name="Lighting Check",
-            description="Checks lighting quality (underexposure, overexposure, low contrast)",
+            display_name="Проверка освещения",
+            description="Проверяет качество освещения (недоэкспонирование, переэкспонирование, низкий контраст)",
             category="image_quality",
             version="1.0.0",
-            author="Photo Validation Team",
+            author="Maxim Borzov",
             parameters=[
                 CheckParameter(
                     name="underexposure_threshold",
                     type="int",
                     default=25,
-                    description="Threshold for underexposure (mean brightness)",
+                    description="Порог для недоэкспонирования (средняя яркость)",
                     min_value=5,
                     max_value=100,
                     required=True
@@ -39,7 +40,7 @@ class LightingCheck(BaseCheck):
                     name="overexposure_threshold",
                     type="int",
                     default=240,
-                    description="Threshold for overexposure (mean brightness)",
+                    description="Порог для переэкспонирования (средняя яркость)",
                     min_value=200,
                     max_value=255,
                     required=True
@@ -48,7 +49,7 @@ class LightingCheck(BaseCheck):
                     name="low_contrast_threshold",
                     type="int",
                     default=20,
-                    description="Threshold for low contrast (standard deviation)",
+                    description="Порог для низкого контраста (стандартное отклонение)",
                     min_value=5,
                     max_value=100,
                     required=True
@@ -57,7 +58,7 @@ class LightingCheck(BaseCheck):
                     name="shadow_ratio_threshold",
                     type="float",
                     default=0.4,
-                    description="Maximum ratio of dark pixels",
+                    description="Максимальное соотношение темных пикселей",
                     min_value=0.1,
                     max_value=0.8,
                     required=False
@@ -66,7 +67,7 @@ class LightingCheck(BaseCheck):
                     name="highlight_ratio_threshold",
                     type="float",
                     default=0.3,
-                    description="Maximum ratio of bright pixels",
+                    description="Максимальное соотношение ярких пикселей",
                     min_value=0.1,
                     max_value=0.8,
                     required=False
@@ -76,34 +77,16 @@ class LightingCheck(BaseCheck):
             enabled_by_default=True
         )
     
-    def __init__(self, **parameters):
-        """Initialize with parameters."""
-        self.parameters = parameters
-        metadata = self.get_metadata()
-        
-        # Set default values
-        for param in metadata.parameters:
-            if param.name not in self.parameters:
-                self.parameters[param.name] = param.default
-        
-        # Validate parameters
-        if not self.validate_parameters(self.parameters):
-            raise ValueError("Invalid parameters provided")
-    
-    def run(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Method for compatibility with old runner."""
-        return self.check(image, context)
-    
     def check(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        Perform lighting quality check on the image.
+        Выполняет проверку качества освещения изображения.
         
         Args:
-            image: Image to check
-            context: Context with previous check results
+            image: Изображение для проверки
+            context: Контекст с результатами предыдущих проверок
             
         Returns:
-            Check results
+            Результаты проверки
         """
         try:
             # Convert to grayscale for brightness analysis
@@ -148,23 +131,23 @@ class LightingCheck(BaseCheck):
             
             # Underexposure
             if mean_brightness < underexposure_threshold:
-                issues.append(f"Underexposure (brightness: {mean_brightness:.1f} < {underexposure_threshold})")
+                issues.append(f"Недоэкспонирование (яркость: {mean_brightness:.1f} < {underexposure_threshold})")
             
             # Overexposure
             if mean_brightness > overexposure_threshold:
-                issues.append(f"Overexposure (brightness: {mean_brightness:.1f} > {overexposure_threshold})")
+                issues.append(f"Переэкспонирование (яркость: {mean_brightness:.1f} > {overexposure_threshold})")
             
             # Low contrast
             if std_brightness < low_contrast_threshold:
-                issues.append(f"Low contrast (σ: {std_brightness:.1f} < {low_contrast_threshold})")
+                issues.append(f"Низкий контраст (σ: {std_brightness:.1f} < {low_contrast_threshold})")
             
             # Too many shadows
             if shadow_ratio > shadow_ratio_threshold:
-                issues.append(f"Too many shadows ({shadow_ratio:.1%} > {shadow_ratio_threshold:.1%})")
+                issues.append(f"Слишком много теней ({shadow_ratio:.1%} > {shadow_ratio_threshold:.1%})")
             
             # Too many highlights
             if highlight_ratio > highlight_ratio_threshold:
-                issues.append(f"Too many highlights ({highlight_ratio:.1%} > {highlight_ratio_threshold:.1%})")
+                issues.append(f"Слишком много бликов ({highlight_ratio:.1%} > {highlight_ratio_threshold:.1%})")
             
             # Final result
             if issues:
@@ -182,10 +165,10 @@ class LightingCheck(BaseCheck):
                 }
                 
         except Exception as e:
-            logger.error(f"Error checking lighting: {e}")
+            logger.error(f"Ошибка при проверке освещения: {e}")
             return {
                 "check": "lighting",
                 "status": "NEEDS_REVIEW",
-                "reason": f"Error during lighting check: {str(e)}",
+                "reason": f"Ошибка при проверке освещения: {str(e)}",
                 "details": {"error": str(e), "parameters_used": self.parameters}
             }

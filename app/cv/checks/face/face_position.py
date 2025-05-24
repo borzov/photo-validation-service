@@ -4,188 +4,215 @@
 import cv2
 import numpy as np
 from typing import Dict, Any
-from app.cv.checks.base import BaseCheck
+from app.cv.checks.registry import BaseCheck, CheckMetadata, CheckParameter
+from app.cv.checks.mixins import StandardCheckMixin
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-class FacePositionCheck(BaseCheck):
+class FacePositionCheck(StandardCheckMixin, BaseCheck):
     """
     Проверка положения и размера лица на изображении.
     """
-    check_id = "facePosition"
-    name = "Проверка положения лица"
-    description = "Проверяет правильность положения и размера лица на изображении"
     
-    default_config = {
-        "face_min_area_ratio": 0.05,
-        "face_max_area_ratio": 0.8,
-        "face_center_tolerance": 0.4,
-        "min_width_ratio": 0.15,
-        "min_height_ratio": 0.2,
-        "min_margin_ratio": 0.03,
-        "boundary_tolerance": 5
-    }
+    @classmethod
+    def get_metadata(cls) -> CheckMetadata:
+        """Возвращает метаданные для этого модуля проверки."""
+        return CheckMetadata(
+            name="face_position",
+            display_name="Позиция лица",
+            description="Проверяет правильное положение и размер лица на изображении",
+            category="face_detection",
+            version="1.0.0",
+            author="Maxim Borzov",
+            parameters=[
+                CheckParameter(
+                    name="face_min_area_ratio",
+                    type="float",
+                    default=0.05,
+                    description="Минимальное соотношение площади лица к изображению",
+                    min_value=0.01,
+                    max_value=0.5,
+                    required=True
+                ),
+                CheckParameter(
+                    name="face_max_area_ratio",
+                    type="float",
+                    default=0.8,
+                    description="Максимальное соотношение площади лица к изображению",
+                    min_value=0.5,
+                    max_value=1.0,
+                    required=True
+                ),
+                CheckParameter(
+                    name="face_center_tolerance",
+                    type="float",
+                    default=0.4,
+                    description="Допустимое отклонение центра лица от центра изображения",
+                    min_value=0.1,
+                    max_value=0.8,
+                    required=True
+                ),
+                CheckParameter(
+                    name="min_width_ratio",
+                    type="float",
+                    default=0.15,
+                    description="Минимальное соотношение ширины лица к изображению",
+                    min_value=0.05,
+                    max_value=0.5,
+                    required=True
+                ),
+                CheckParameter(
+                    name="min_height_ratio",
+                    type="float",
+                    default=0.2,
+                    description="Минимальное соотношение высоты лица к изображению",
+                    min_value=0.05,
+                    max_value=0.5,
+                    required=True
+                ),
+                CheckParameter(
+                    name="min_margin_ratio",
+                    type="float",
+                    default=0.03,
+                    description="Минимальный отступ вокруг лица",
+                    min_value=0.01,
+                    max_value=0.2,
+                    required=True
+                ),
+                CheckParameter(
+                    name="boundary_tolerance",
+                    type="int",
+                    default=5,
+                    description="Допуск для определения границ лица в пикселях",
+                    min_value=1,
+                    max_value=20,
+                    required=False
+                )
+            ],
+            dependencies=["opencv-python"],
+            enabled_by_default=True
+        )
     
-    def run(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
+    # Инициализация и run() метод унаследованы из StandardCheckMixin
+
+    def check(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        Выполняет проверку положения лица на изображении.
+        Проверяет положение лица на изображении.
         
         Args:
             image: Изображение для проверки
-            context: Контекст с результатами предыдущих проверок, должен содержать context["face"]["bbox"]
+            context: Контекст с результатами предыдущих проверок, должен содержать face["bbox"]
             
         Returns:
             Результаты проверки
         """
-        if not context or "face" not in context or "bbox" not in context["face"]:
-            logger.warning("No face found in context for face position check")
-            return {
-                "status": "SKIPPED",
-                "reason": "No face detected",
-                "details": None
-            }
-        
+        # Проверяем контекст лица с bbox
+        context_error = self._validate_face_bbox_context(context, "face_position")
+        if context_error:
+            return context_error
+
         try:
-            h, w, _ = image.shape
+            h, w = image.shape[:2]
             x, y, width, height = context["face"]["bbox"]
             
-            # Проверка размера лица
-            face_area = width * height
-            image_area = h * w
-            face_ratio = face_area / image_area
+            # Анализ позиции лица
+            face_center_x = x + width // 2
+            face_center_y = y + height // 2
+            image_center_x = w // 2
+            image_center_y = h // 2
             
-            # Проверка центрирования лица
-            face_center_x = x + width / 2
-            face_center_y = y + height / 2
-            image_center_x = w / 2
-            image_center_y = h / 2
+            # Отклонения от центра
+            center_deviation_x = abs(face_center_x - image_center_x) / w
+            center_deviation_y = abs(face_center_y - image_center_y) / h
             
-            # Расчет отклонения от центра
-            effective_tolerance_x = w * self.config["face_center_tolerance"]
-            effective_tolerance_y = h * self.config["face_center_tolerance"]
+            # Соотношения размеров
+            face_area_ratio = (width * height) / (w * h)
+            width_ratio = width / w
+            height_ratio = height / h
             
-            x_offset = abs(face_center_x - image_center_x)
-            y_offset = abs(face_center_y - image_center_y)
-            
-            # Детали для ответа
-            details = {
-                "face_bbox": [int(x), int(y), int(width), int(height)],
-                "face_area_ratio": round(face_ratio, 3),
-                "center_offset_x_px": round(x_offset, 1),
-                "center_offset_y_px": round(y_offset, 1),
-                "image_size": [w, h]
-            }
-            
-            # Список причин для отклонения
-            reasons = []
-            
-            # Проверка площади лица
-            min_area_ratio = self.config["face_min_area_ratio"]
-            max_area_ratio = self.config["face_max_area_ratio"]
-            
-            if face_ratio < min_area_ratio:
-                reasons.append(f"Face area ratio {face_ratio:.3f} too small (min: {min_area_ratio:.3f})")
-            if face_ratio > max_area_ratio:
-                reasons.append(f"Face area ratio {face_ratio:.3f} too large (max: {max_area_ratio:.3f})")
-            
-            # Проверка центрирования
-            if x_offset > effective_tolerance_x:
-                reasons.append(f"Face X offset {x_offset:.1f}px exceeds tolerance {effective_tolerance_x:.1f}px")
-            if y_offset > effective_tolerance_y:
-                reasons.append(f"Face Y offset {y_offset:.1f}px exceeds tolerance {effective_tolerance_y:.1f}px")
-            
-            # Проверка близости к краям изображения
-            boundary_tolerance = self.config["boundary_tolerance"]
-            is_close_to_left = x < boundary_tolerance
-            is_close_to_top = y < boundary_tolerance
-            is_close_to_right = (x + width) > (w - boundary_tolerance)
-            is_close_to_bottom = (y + height) > (h - boundary_tolerance)
-            
-            # Расчет отступов от краев изображения
+            # Отступы от границ
             left_margin_ratio = x / w
-            right_margin_ratio = (w - (x + width)) / w
+            right_margin_ratio = (w - x - width) / w
             top_margin_ratio = y / h
-            bottom_margin_ratio = (h - (y + height)) / h
+            bottom_margin_ratio = (h - y - height) / h
             
-            # Добавляем информацию о границах в детали
-            details["margins"] = {
-                "left": round(left_margin_ratio, 3),
-                "right": round(right_margin_ratio, 3),
-                "top": round(top_margin_ratio, 3),
-                "bottom": round(bottom_margin_ratio, 3)
+            # Получаем параметры
+            min_area_ratio = self.parameters["face_min_area_ratio"]
+            max_area_ratio = self.parameters["face_max_area_ratio"]
+            center_tolerance = self.parameters["face_center_tolerance"]
+            min_width_ratio = self.parameters["min_width_ratio"]
+            min_height_ratio = self.parameters["min_height_ratio"]
+            min_margin_ratio = self.parameters["min_margin_ratio"]
+            boundary_tolerance = self.parameters["boundary_tolerance"]
+            
+            details = {
+                "face_center": [face_center_x, face_center_y],
+                "image_center": [image_center_x, image_center_y],
+                "center_deviation": [center_deviation_x, center_deviation_y],
+                "face_area_ratio": face_area_ratio,
+                "width_ratio": width_ratio,
+                "height_ratio": height_ratio,
+                "margins": {
+                    "left": left_margin_ratio,
+                    "right": right_margin_ratio,
+                    "top": top_margin_ratio,
+                    "bottom": bottom_margin_ratio
+                },
+                "parameters_used": self.parameters
             }
             
-            # Проверяем, касается ли лицо краев изображения
-            if is_close_to_left:
-                reasons.append(f"Face is cropped at left edge (margin: {left_margin_ratio:.3f})")
-            if is_close_to_top:
-                reasons.append(f"Face is cropped at top edge (margin: {top_margin_ratio:.3f})")
-            if is_close_to_right:
-                reasons.append(f"Face is cropped at right edge (margin: {right_margin_ratio:.3f})")
-            if is_close_to_bottom:
-                reasons.append(f"Face is cropped at bottom edge (margin: {bottom_margin_ratio:.3f})")
+            # Проверки
+            issues = []
+            
+            # Размер лица
+            if face_area_ratio < min_area_ratio:
+                issues.append(f"Лицо слишком маленькое ({face_area_ratio:.1%} < {min_area_ratio:.1%})")
+            elif face_area_ratio > max_area_ratio:
+                issues.append(f"Лицо слишком большое ({face_area_ratio:.1%} > {max_area_ratio:.1%})")
+            
+            # Позиция лица
+            if center_deviation_x > center_tolerance:
+                issues.append(f"Лицо смещено по горизонтали ({center_deviation_x:.1%} > {center_tolerance:.1%})")
+            if center_deviation_y > center_tolerance:
+                issues.append(f"Лицо смещено по вертикали ({center_deviation_y:.1%} > {center_tolerance:.1%})")
+            
+            # Проверка обрезки
+            is_close_to_boundary = (x <= boundary_tolerance or 
+                                  y <= boundary_tolerance or
+                                  x + width >= w - boundary_tolerance or
+                                  y + height >= h - boundary_tolerance)
+            
+            if is_close_to_boundary:
+                issues.append("Лицо обрезано по краю изображения")
             
             # Проверка минимальных отступов
-            min_margin_ratio = self.config["min_margin_ratio"]
             if (left_margin_ratio < min_margin_ratio or 
                 right_margin_ratio < min_margin_ratio or 
                 top_margin_ratio < min_margin_ratio or 
                 bottom_margin_ratio < min_margin_ratio):
-                if "Face is cropped" not in " ".join(reasons):
-                    reasons.append(f"Face is too close to image boundary (minimum margin should be {min_margin_ratio:.0%})")
+                issues.append(f"Лицо слишком близко к краю изображения (минимальный отступ: {min_margin_ratio:.0%})")
             
             # Проверка соотношений размеров
-            portrait_ratio = h / w
-            is_portrait = portrait_ratio > 1.3
+            if width_ratio < min_width_ratio:
+                issues.append(f"Ширина лица слишком мала ({width_ratio:.1%} < {min_width_ratio:.1%})")
+            if height_ratio < min_height_ratio:
+                issues.append(f"Высота лица слишком мала ({height_ratio:.1%} < {min_height_ratio:.1%})")
             
-            if is_portrait:
-                min_width_ratio = self.config["min_width_ratio"] * 0.8  # Снижаем требования для портретных фото
-                min_height_ratio = self.config["min_height_ratio"] * 0.8
-                details["is_portrait"] = True
-                details["portrait_ratio"] = round(portrait_ratio, 2)
-            else:
-                min_width_ratio = self.config["min_width_ratio"]
-                min_height_ratio = self.config["min_height_ratio"]
-            
-            head_width_ratio = width / w
-            head_height_ratio = height / h
-            
-            details["min_width_ratio"] = round(min_width_ratio, 2)
-            details["min_height_ratio"] = round(min_height_ratio, 2)
-            
-            # Проверки на соответствие размеров головы требованиям
-            # Если лицо достаточно большое, пропускаем эти проверки
-            sufficient_face_ratio = 0.09  # 9% от площади изображения
-            if face_ratio < sufficient_face_ratio:
-                if head_width_ratio < min_width_ratio:
-                    reasons.append(f"Head width {head_width_ratio:.2f} below minimum required ratio {min_width_ratio:.2f}")
-                
-                if head_height_ratio < min_height_ratio:
-                    reasons.append(f"Head height {head_height_ratio:.2f} below minimum required ratio {min_height_ratio:.2f}")
-            else:
-                details["width_height_checks_skipped"] = True
-                details["sufficient_face_ratio"] = sufficient_face_ratio
-            
-            # Финальный результат
-            if reasons:
-                logger.info(f"Face position invalid: {'; '.join(reasons)}")
+            # Результат
+            if issues:
                 return {
+                    "check": "face_position",
                     "status": "FAILED",
-                    "reason": "; ".join(reasons),
+                    "reason": "; ".join(issues),
                     "details": details
                 }
             else:
-                logger.info("Face position is valid")
                 return {
+                    "check": "face_position",
                     "status": "PASSED",
                     "details": details
                 }
                 
         except Exception as e:
-            logger.error(f"Error during face position check: {e}")
-            return {
-                "status": "FAILED",
-                "reason": f"Face position check error: {str(e)}",
-                "details": {"error": str(e)}
-            }
+            return self._create_error_result("face_position", e)

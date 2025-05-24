@@ -77,7 +77,7 @@ class TestSystemIntegration:
                     assert "issues" in result_data
                     
                     if status == "COMPLETED":
-                        assert result_data["overallStatus"] in ["PASSED", "FAILED", "NEEDS_REVIEW", "REJECTED"]
+                        assert result_data["overallStatus"] in ["APPROVED", "REJECTED", "MANUAL_REVIEW"]
                         assert isinstance(result_data["checks"], list)
                         assert isinstance(result_data["issues"], list)
                     

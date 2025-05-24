@@ -106,6 +106,13 @@ class CheckRegistry:
         self.metadata: Dict[str, CheckMetadata] = {}
         self._discovered = False
     
+    def reset(self) -> None:
+        """Reset registry and force rediscovery."""
+        self.checks.clear()
+        self.metadata.clear()
+        self._discovered = False
+        logger.info("Registry reset, will rediscover on next access")
+    
     def discover_checks(self, base_path: str = None) -> None:
         """
         Automatically discover all check modules in specified directory.
@@ -114,6 +121,10 @@ class CheckRegistry:
             base_path = os.path.dirname(__file__)
         
         logger.info(f"Discovering checks in {base_path}")
+        
+        # Clear existing data
+        self.checks.clear()
+        self.metadata.clear()
         
         # Recursively walk through all Python files
         for root, dirs, files in os.walk(base_path):

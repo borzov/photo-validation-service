@@ -1,35 +1,36 @@
 """
-Module for image background analysis.
+Модуль для анализа фона изображения.
 """
 import cv2
 import numpy as np
 from typing import Dict, Any
 from app.cv.checks.registry import BaseCheck, CheckMetadata, CheckParameter
+from app.cv.checks.mixins import StandardCheckMixin
 from app.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-class BackgroundCheck(BaseCheck):
+class BackgroundCheck(StandardCheckMixin, BaseCheck):
     """
-    Check background uniformity and brightness.
+    Проверка однородности и яркости фона.
     """
     
     @classmethod
     def get_metadata(cls) -> CheckMetadata:
-        """Return metadata for this check module."""
+        """Возвращает метаданные для этого модуля проверки."""
         return CheckMetadata(
             name="background",
-            display_name="Background Analysis",
-            description="Checks background uniformity and quality",
+            display_name="Анализ фона",
+            description="Проверяет однородность и качество фона",
             category="background",
             version="1.0.0",
-            author="Photo Validation Team",
+            author="Maxim Borzov",
             parameters=[
                 CheckParameter(
                     name="background_std_dev_threshold",
                     type="float",
                     default=110.0,
-                    description="Standard deviation threshold for background uniformity",
+                    description="Порог стандартного отклонения для однородности фона",
                     min_value=50.0,
                     max_value=200.0,
                     required=True
@@ -38,7 +39,7 @@ class BackgroundCheck(BaseCheck):
                     name="is_dark_threshold",
                     type="int",
                     default=80,
-                    description="Brightness threshold for determining dark background",
+                    description="Порог яркости для определения тёмного фона",
                     min_value=30,
                     max_value=150,
                     required=True
@@ -47,7 +48,7 @@ class BackgroundCheck(BaseCheck):
                     name="edge_density_threshold",
                     type="float",
                     default=0.08,
-                    description="Edge density threshold for texture detection",
+                    description="Порог плотности краёв для обнаружения текстур",
                     min_value=0.01,
                     max_value=0.5,
                     required=False
@@ -56,7 +57,7 @@ class BackgroundCheck(BaseCheck):
                     name="grad_mean_threshold",
                     type="int",
                     default=45,
-                    description="Mean gradient threshold for smooth background",
+                    description="Порог среднего градиента для гладкого фона",
                     min_value=10,
                     max_value=100,
                     required=False
@@ -66,41 +67,23 @@ class BackgroundCheck(BaseCheck):
             enabled_by_default=True
         )
     
-    def __init__(self, **parameters):
-        """Initialize with parameters."""
-        self.parameters = parameters
-        metadata = self.get_metadata()
-        
-        # Set default values
-        for param in metadata.parameters:
-            if param.name not in self.parameters:
-                self.parameters[param.name] = param.default
-        
-        # Validate parameters
-        if not self.validate_parameters(self.parameters):
-            raise ValueError("Invalid parameters provided")
-    
-    def run(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
-        """Method for compatibility with old runner."""
-        return self.check(image, context)
-    
     def check(self, image: np.ndarray, context: Dict[str, Any] = None) -> Dict[str, Any]:
         """
-        Perform background analysis on the image.
+        Выполняет анализ фона изображения.
         
         Args:
-            image: Image to check
-            context: Context with previous check results, should contain face
+            image: Изображение для проверки
+            context: Контекст с результатами предыдущих проверок, должен содержать face
             
         Returns:
-            Check results
+            Результаты проверки
         """
         if not context or "face" not in context or "bbox" not in context["face"]:
             logger.warning("No face found in context for background check")
             return {
                 "check": "background",
                 "status": "SKIPPED",
-                "reason": "No face detected",
+                "reason": "Лицо не обнаружено",
                 "details": None
             }
 
@@ -126,7 +109,7 @@ class BackgroundCheck(BaseCheck):
                 return {
                     "check": "background",
                     "status": "NEEDS_REVIEW",
-                    "reason": "Background area too small for analysis",
+                    "reason": "Область фона слишком мала для анализа",
                     "details": None
                 }
 
@@ -188,13 +171,13 @@ class BackgroundCheck(BaseCheck):
 
             issues = []
             if not is_uniform:
-                issues.append(f"Background not uniform (σ: {background_std_dev:.1f}, threshold: {background_std_dev_threshold})")
+                issues.append(f"Фон неоднородный (σ: {background_std_dev:.1f}, порог: {background_std_dev_threshold})")
 
             if not is_plain_background:
-                issues.append(f"Background has textures or patterns (gradient: {grad_mean:.1f}, edge density: {edge_density:.3f})")
+                issues.append(f"Фон имеет текстуры или узоры (градиент: {grad_mean:.1f}, плотность краев: {edge_density:.3f})")
 
             if is_dark:
-                issues.append(f"Background too dark (brightness: {background_mean:.1f}, should be > {is_dark_threshold})")
+                issues.append(f"Фон слишком темный (яркость: {background_mean:.1f}, должна быть > {is_dark_threshold})")
 
             # Final result
             if issues:
@@ -212,10 +195,10 @@ class BackgroundCheck(BaseCheck):
                 }
                 
         except Exception as e:
-            logger.error(f"Error during background analysis: {e}")
+            logger.error(f"Ошибка при анализе фона: {e}")
             return {
                 "check": "background",
                 "status": "PASSED",  # Skip check in case of error
-                "reason": f"Background analysis error: {str(e)}",
+                "reason": f"Ошибка анализа фона: {str(e)}",
                 "details": {"error": str(e), "parameters_used": self.parameters}
             }

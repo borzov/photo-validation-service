@@ -52,10 +52,10 @@ try:
         face_detector = cv2.FaceDetectorYN.create(
             face_detector_path,
             "",
-            (320, 320),  # Minimum input size
-            0.6,         # Confidence threshold
+            (120, 120),  # Minimum input size - smaller for better detection
+            0.4,         # Confidence threshold - lower for better detection
             0.3,         # NMS threshold
-            5000         # Max faces
+            100          # Max faces - reduced to avoid memory issues
         )
         logger.info("YuNet face detector loaded successfully.")
     else:
@@ -153,11 +153,14 @@ def detect_faces_haar(image: np.ndarray) -> List[Dict[str, Any]]:
         
     try:
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # Улучшенные настройки для лучшей детекции лиц
         faces_haar = face_detector.detectMultiScale(
             gray, 
-            scaleFactor=1.1, 
-            minNeighbors=5, 
-            minSize=(60, 60)
+            scaleFactor=1.05,    # Меньший шаг масштабирования для лучшей точности
+            minNeighbors=3,      # Меньше соседей для менее строгой фильтрации
+            minSize=(30, 30),    # Меньший минимальный размер
+            maxSize=(500, 500),  # Максимальный размер для избежания ложных срабатываний
+            flags=cv2.CASCADE_SCALE_IMAGE
         )
         
         faces_data = []
@@ -286,13 +289,13 @@ def emergency_face_detection(image: np.ndarray) -> List[Dict[str, Any]]:
         return []
 
 
-def detect_faces(image: np.ndarray) -> List[Dict[str, Any]]:
+def detect_faces(image: np.ndarray, confidence_threshold: float = 0.4) -> List[Dict[str, Any]]:
     """
     Comprehensive multi-level face detection strategy.
     Uses multiple fallback methods for robustness.
     """
     if face_detector is None:
-        logger.error("Face detector not available. Skipping face detection.")
+        logger.error("Детектор лиц недоступен. Пропуск обнаружения лиц.")
         return []
 
     h, w = image.shape[:2]
@@ -301,17 +304,44 @@ def detect_faces(image: np.ndarray) -> List[Dict[str, Any]]:
     try:
         # Method 1: Standard YuNet/Haar detection
         if isinstance(face_detector, cv2.FaceDetectorYN):
-            faces_data = detect_faces_yunet(image)
+            try:
+                faces_data = detect_faces_yunet(image, confidence_threshold)
+            except Exception as yunet_error:
+                logger.warning(f"YuNet failed, trying Haar fallback: {yunet_error}")
+                # Если YuNet падает, пробуем через Haar каскад напрямую
+                try:
+                    haar_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
+                    if Path(haar_path).is_file():
+                        haar_cascade = cv2.CascadeClassifier(haar_path)
+                        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+                        faces_haar = haar_cascade.detectMultiScale(
+                            gray, 
+                            scaleFactor=1.05,
+                            minNeighbors=3, 
+                            minSize=(30, 30),
+                            maxSize=(500, 500),
+                            flags=cv2.CASCADE_SCALE_IMAGE
+                        )
+                        faces_data = []
+                        for face_rect in faces_haar:
+                            faces_data.append({
+                                "bbox": tuple(face_rect),
+                                "landmarks": None,
+                                "confidence": 0.8
+                            })
+                        logger.debug(f"Haar fallback found {len(faces_data)} faces.")
+                except Exception as haar_error:
+                    logger.warning(f"Haar fallback also failed: {haar_error}")
         elif isinstance(face_detector, cv2.CascadeClassifier):
             faces_data = detect_faces_haar(image)
         
-        # Method 2: Multi-scale detection if no faces found
-        if not faces_data:
-            faces_data = detect_faces_multiscale(image)
+        # Method 2: Multi-scale detection if no faces found (временно отключено из-за ложных срабатываний)
+        # if not faces_data:
+        #     faces_data = detect_faces_multiscale(image)
         
-        # Method 3: Emergency detection using skin regions
-        if not faces_data:
-            faces_data = emergency_face_detection(image)
+        # Method 3: Emergency detection using skin regions (временно отключено из-за ложных срабатываний)
+        # if not faces_data:
+        #     faces_data = emergency_face_detection(image)
         
         # Detect facial landmarks if facemark is available
         if facemark is not None and faces_data:
@@ -332,11 +362,11 @@ def detect_faces(image: np.ndarray) -> List[Dict[str, Any]]:
             except Exception as e:
                 logger.warning(f"Landmark detection failed: {e}")
         
-        logger.info(f"Detected {len(faces_data)} faces.")
+        logger.info(f"Обнаружено {len(faces_data)} лиц.")
         return faces_data
     
     except Exception as e:
-        logger.error(f"Face detection failed completely: {e}")
+        logger.error(f"Обнаружение лиц полностью не удалось: {e}")
         return []
 
 

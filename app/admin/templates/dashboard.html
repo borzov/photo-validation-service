@@ -50,7 +50,7 @@
         <div class="flex items-center justify-between">
             <div>
                 <p class="text-white/80 text-sm">Форматов файлов</p>
-                <p class="text-3xl font-bold text-white">{{ config.validation.image_requirements.allowed_formats|length if config.validation.image_requirements.allowed_formats else 2 }}</p>
+                <p class="text-3xl font-bold text-white">{{ config.system.storage.allowed_formats|length if config.system.storage and config.system.storage.allowed_formats else 6 }}</p>
             </div>
             <i data-lucide="file-image" class="h-8 w-8 text-white/60"></i>
         </div>

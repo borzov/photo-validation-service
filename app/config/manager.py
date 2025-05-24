@@ -11,7 +11,6 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 from .schema import ConfigurationSchema
-from .defaults import get_default_config
 
 
 logger = logging.getLogger(__name__)
@@ -107,8 +106,8 @@ class ConfigurationManager:
                 config = ConfigurationSchema(**config_data)
                 logger.info(f"Loaded configuration from {self.config_file}")
             else:
-                # Create default configuration
-                config = get_default_config()
+                # Create basic default configuration
+                config = ConfigurationSchema()  # Uses defaults from schema
                 self.save_config(config)
                 logger.info(f"Created default configuration at {self.config_file}")
             
@@ -125,7 +124,7 @@ class ConfigurationManager:
             logger.error(f"Failed to load configuration: {e}")
             if self._config is None:
                 # If no config loaded yet, use default
-                self._config = get_default_config()
+                self._config = ConfigurationSchema()
             return self._config
     
     def save_config(self, config: ConfigurationSchema, backup: bool = True) -> bool:
@@ -139,7 +138,7 @@ class ConfigurationManager:
                 self._create_backup()
             
             # Write configuration
-            config_data = json.loads(config.json(indent=2))
+            config_data = config.model_dump()
             
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(config_data, f, indent=2, ensure_ascii=False)
@@ -199,7 +198,7 @@ class ConfigurationManager:
         """Update configuration with partial data"""
         try:
             current_config = self.get_config()
-            current_data = json.loads(current_config.json())
+            current_data = current_config.model_dump()
             
             # Deep merge updates
             merged_data = self._deep_merge(current_data, updates)
@@ -209,7 +208,7 @@ class ConfigurationManager:
                 new_config = ConfigurationSchema(**merged_data)
             else:
                 # Create without validation (risky)
-                new_config = ConfigurationSchema.parse_obj(merged_data)
+                new_config = ConfigurationSchema.model_validate(merged_data)
             
             # Save new configuration
             success = self.save_config(new_config)
@@ -239,7 +238,7 @@ class ConfigurationManager:
     def reset_to_defaults(self) -> bool:
         """Reset configuration to default values"""
         try:
-            default_config = get_default_config()
+            default_config = ConfigurationSchema()
             return self.save_config(default_config)
         except Exception as e:
             logger.error(f"Failed to reset configuration to defaults: {e}")
@@ -252,7 +251,7 @@ class ConfigurationManager:
             config = self.get_config()
             
             with open(export_file, 'w', encoding='utf-8') as f:
-                json.dump(json.loads(config.json()), f, indent=2, ensure_ascii=False)
+                json.dump(config.model_dump(), f, indent=2, ensure_ascii=False)
             
             logger.info(f"Exported configuration to {export_file}")
             return True
@@ -276,7 +275,7 @@ class ConfigurationManager:
                 # Validate imported configuration
                 config = ConfigurationSchema(**config_data)
             else:
-                config = ConfigurationSchema.parse_obj(config_data)
+                config = ConfigurationSchema.model_validate(config_data)
             
             success = self.save_config(config)
             
@@ -304,7 +303,7 @@ class ConfigurationManager:
         config = self.get_config()
         
         parts = section_path.split('.')
-        current = config.dict()
+        current = config.model_dump()
         
         for part in parts:
             if isinstance(current, dict) and part in current:

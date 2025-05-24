@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, TIMESTAMP, Float, create_engine, Index, JSON
+from sqlalchemy import Column, String, Text, TIMESTAMP, Float, Integer, create_engine, Index, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.dialects.postgresql import JSONB
 from app.core.config import settings
@@ -27,6 +27,8 @@ class ValidationRequest(Base):
     __tablename__ = "validation_requests"
     
     request_id = Column(String, primary_key=True, index=True)
+    filename = Column(String, nullable=True)  # Имя файла
+    file_size = Column(Integer, nullable=True)  # Размер файла в байтах
     status = Column(String, nullable=False)  # PENDING, PROCESSING, COMPLETED, FAILED
     overall_status = Column(String, nullable=True)  # APPROVED, REJECTED, MANUAL_REVIEW
     checks = Column(get_json_type(), nullable=True)  # Dynamic JSON type
@@ -42,6 +44,8 @@ class ValidationRequest(Base):
         """
         result = {
             "request_id": self.request_id,
+            "filename": self.filename,
+            "file_size": self.file_size,
             "status": self.status,
             "created_at": self.created_at.isoformat() if isinstance(self.created_at, datetime) else self.created_at,
             "processed_at": self.processed_at.isoformat() if isinstance(self.processed_at, datetime) else self.processed_at,

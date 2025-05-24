@@ -72,23 +72,23 @@
         
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <div>
-                <label for="storage_path" class="block text-sm font-medium text-gray-700 mb-2">
-                    Путь хранения файлов
+                <label for="max_file_size_mb" class="block text-sm font-medium text-gray-700 mb-2">
+                    Максимальный размер файла (МБ)
                 </label>
-                <input type="text" id="storage_path" name="storage_path" 
-                       value="{{ config.system.storage.storage_path if config.system.storage else '/app/local_storage' }}" 
-                       class="form-input w-full">
-                <p class="text-sm text-gray-500 mt-1">Директория для сохранения загруженных файлов</p>
+                <input type="number" id="max_file_size_mb" name="max_file_size_mb" 
+                       value="{{ config.system.storage.max_file_size_mb if config.system.storage else 5.0 }}" 
+                       min="0.1" max="100" step="0.1" class="form-input w-full">
+                <p class="text-sm text-gray-500 mt-1">Максимальный размер загружаемого файла</p>
             </div>
             
             <div>
-                <label for="max_file_size_mb" class="block text-sm font-medium text-gray-700 mb-2">
-                    Максимальный размер файла (MB)
+                <label for="allowed_formats" class="block text-sm font-medium text-gray-700 mb-2">
+                    Поддерживаемые форматы
                 </label>
-                <input type="number" id="max_file_size_mb" name="max_file_size_mb" 
-                       value="{{ config.system.storage.max_file_size_mb if config.system.storage else 10 }}" 
-                       min="1" max="100" step="0.1" class="form-input w-full">
-                <p class="text-sm text-gray-500 mt-1">Максимальный размер загружаемого файла</p>
+                <input type="text" id="allowed_formats" name="allowed_formats" 
+                       value="{{ ','.join(config.system.storage.allowed_formats) if config.system.storage and config.system.storage.allowed_formats else 'jpg,jpeg,png,webp,bmp,tiff' }}" 
+                       class="form-input w-full">
+                <p class="text-sm text-gray-500 mt-1">Список форматов через запятую</p>
             </div>
             
             <div>
@@ -97,8 +97,8 @@
                 </label>
                 <input type="number" id="max_pixels" name="max_pixels" 
                        value="{{ config.system.storage.max_pixels if config.system.storage else 50000000 }}" 
-                       min="1000000" max="100000000" step="1000000" class="form-input w-full">
-                <p class="text-sm text-gray-500 mt-1">Максимальное разрешение изображения (пикселей)</p>
+                       min="1000000" max="200000000" class="form-input w-full">
+                <p class="text-sm text-gray-500 mt-1">Лимит пикселей для защиты от больших изображений</p>
             </div>
         </div>
     </div>
@@ -106,7 +106,7 @@
     <!-- Logging Settings -->
     <div class="card p-6">
         <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-            <i data-lucide="file-text" class="h-5 w-5 mr-2 text-purple-600"></i>
+            <i data-lucide="file-text" class="h-5 w-5 mr-2 text-orange-600"></i>
             Настройки логирования
         </h2>
         
@@ -116,91 +116,27 @@
                     Уровень логирования
                 </label>
                 <select id="log_level" name="log_level" class="form-input w-full">
-                    <option value="DEBUG" {% if config.system.log_level == 'DEBUG' %}selected{% endif %}>DEBUG</option>
-                    <option value="INFO" {% if config.system.log_level == 'INFO' %}selected{% endif %}>INFO</option>
-                    <option value="WARNING" {% if config.system.log_level == 'WARNING' %}selected{% endif %}>WARNING</option>
-                    <option value="ERROR" {% if config.system.log_level == 'ERROR' %}selected{% endif %}>ERROR</option>
+                    <option value="DEBUG" {% if config.system.log_level == 'DEBUG' %}selected{% endif %}>DEBUG - Все сообщения</option>
+                    <option value="INFO" {% if config.system.log_level == 'INFO' or not config.system.log_level %}selected{% endif %}>INFO - Информационные сообщения</option>
+                    <option value="WARNING" {% if config.system.log_level == 'WARNING' %}selected{% endif %}>WARNING - Предупреждения и ошибки</option>
+                    <option value="ERROR" {% if config.system.log_level == 'ERROR' %}selected{% endif %}>ERROR - Только ошибки</option>
                 </select>
-                <p class="text-sm text-gray-500 mt-1">Минимальный уровень записываемых логов</p>
+                <p class="text-sm text-gray-500 mt-1">Определяет детальность логирования</p>
             </div>
             
             <div>
-                <label for="log_file_path" class="block text-sm font-medium text-gray-700 mb-2">
-                    Путь к файлу логов
+                <label for="storage_path" class="block text-sm font-medium text-gray-700 mb-2">
+                    Путь для хранения файлов
                 </label>
-                <input type="text" id="log_file_path" name="log_file_path" 
-                       value="{{ config.system.logging.log_file_path if config.system.logging else '/app/logs/app.log' }}" 
+                <input type="text" id="storage_path" name="storage_path" 
+                       value="{{ config.system.storage.storage_path if config.system.storage else './local_storage' }}" 
                        class="form-input w-full">
-                <p class="text-sm text-gray-500 mt-1">Файл для записи логов</p>
+                <p class="text-sm text-gray-500 mt-1">Директория для временного хранения загружаемых файлов</p>
             </div>
         </div>
     </div>
 
-    <!-- API Settings -->
-    <div class="card p-6">
-        <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-            <i data-lucide="globe" class="h-5 w-5 mr-2 text-orange-600"></i>
-            Настройки API
-        </h2>
-        
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-                <label for="api_rate_limit" class="block text-sm font-medium text-gray-700 mb-2">
-                    Ограничение запросов (в минуту)
-                </label>
-                <input type="number" id="api_rate_limit" name="api_rate_limit" 
-                       value="{{ config.system.api.rate_limit if config.system.api else 100 }}" 
-                       min="1" max="1000" class="form-input w-full">
-                <p class="text-sm text-gray-500 mt-1">Максимальное количество запросов в минуту</p>
-            </div>
-            
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">
-                    Включить CORS
-                </label>
-                <label class="switch">
-                    <input type="checkbox" id="enable_cors" name="enable_cors" 
-                           {% if (config.system.api and config.system.api.enable_cors) or (not config.system.api) %}checked{% endif %}>
-                    <span class="slider"></span>
-                </label>
-                <p class="text-sm text-gray-500 mt-1">Разрешить кросс-доменные запросы</p>
-            </div>
-        </div>
-    </div>
-
-    <!-- Security Settings -->
-    <div class="card p-6">
-        <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
-            <i data-lucide="shield" class="h-5 w-5 mr-2 text-red-600"></i>
-            Настройки безопасности
-        </h2>
-        
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">
-                    Сохранять загруженные файлы
-                </label>
-                <label class="switch">
-                    <input type="checkbox" id="save_uploaded_files" name="save_uploaded_files" 
-                           {% if (config.system.security and config.system.security.save_uploaded_files) or (not config.system.security) %}checked{% endif %}>
-                    <span class="slider"></span>
-                </label>
-                <p class="text-sm text-gray-500 mt-1">Сохранять файлы после обработки</p>
-            </div>
-            
-            <div>
-                <label for="file_retention_days" class="block text-sm font-medium text-gray-700 mb-2">
-                    Период хранения файлов (дней)
-                </label>
-                <input type="number" id="file_retention_days" name="file_retention_days" 
-                       value="{{ config.system.security.file_retention_days if config.system.security else 30 }}" 
-                       min="1" max="365" class="form-input w-full">
-                <p class="text-sm text-gray-500 mt-1">Количество дней хранения файлов</p>
-            </div>
-        </div>
-    </div>
-
-    <!-- Save Button -->
+    <!-- Submit Buttons -->
     <div class="flex justify-end space-x-4 pt-6 border-t border-gray-200">
         <button type="button" onclick="testConfiguration()" class="btn-secondary">
             <i data-lucide="play" class="h-4 w-4 mr-1"></i>
@@ -216,45 +152,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
-    // Reset to defaults
-    function resetToDefaults() {
-        if (confirm('Вы уверены? Все системные настройки будут сброшены к значениям по умолчанию!')) {
-            fetch('/admin/system/reset', { method: 'POST' })
-                .then(response => {
-                    if (response.ok) {
-                        window.location.reload();
-                    }
-                });
-        }
-    }
-
-    // Test configuration
-    function testConfiguration() {
-        const form = document.getElementById('systemForm');
-        const formData = new FormData(form);
-        
-        // Send test request
-        fetch('/admin/system/test', {
-            method: 'POST',
-            body: formData
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                alert('Конфигурация валидна!');
-            } else {
-                alert('Ошибка в конфигурации: ' + data.error);
-            }
-        })
-        .catch(error => {
-            alert('Ошибка тестирования: ' + error);
-        });
-    }
-
-    // Initialize Lucide icons
-    document.addEventListener('DOMContentLoaded', function() {
-        lucide.createIcons();
-    });
-</script>
+<script src="/admin/static/js/system.js"></script>
 {% endblock %} 

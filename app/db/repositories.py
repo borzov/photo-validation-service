@@ -38,13 +38,15 @@ class ValidationRequestRepository:
     Репозиторий для работы с запросами на валидацию
     """
     @staticmethod
-    def create(request_id: str, status: str = "PENDING") -> ValidationRequest:
+    def create(request_id: str, filename: str = None, file_size: int = None, status: str = "PENDING") -> ValidationRequest:
         """
         Создает новый запрос на валидацию
         """
         with get_db_session() as db:
             db_request = ValidationRequest(
                 request_id=request_id,
+                filename=filename,
+                file_size=file_size,
                 status=status,
                 created_at=datetime.utcnow()
             )

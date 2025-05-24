@@ -6,6 +6,7 @@ services:
     volumes:
       - ./models:/app/models
       - ./local_storage:/app/local_storage
+      - ./app:/app/app
     environment:
       - MODELS_DIR=/app/models
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/photo_validation
@@ -22,7 +23,7 @@ services:
         # Применяем миграции
         alembic upgrade head
         # Запускаем приложение
-        uvicorn app.api.main:app --host 0.0.0.0 --port 8000
+        uvicorn app.api.main:app --host 0.0.0.0 --port 8000 --reload
       "
 
   db:
